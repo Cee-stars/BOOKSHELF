@@ -121,6 +121,7 @@ button{background:none;border:0;cursor:pointer}
 }
 .empty{padding:56px 24px;text-align:center;color:var(--dim);line-height:1.9}
 .empty b{display:block;font-family:var(--display);font-size:19px;color:var(--text);margin-bottom:10px}
+.empty .ghost{max-width:320px;margin:18px auto 0}
 
 .fab{
   position:fixed;right:18px;bottom:calc(20px + var(--safe-b));
@@ -392,7 +393,8 @@ button{background:none;border:0;cursor:pointer}
   <button class="ghost" id="dExport">全部を書き出す（.json）</button>
   <button class="ghost" id="dImport">読み込む（.json）</button>
   <input type="file" id="jsonIn" accept="application/json,.json" hidden>
-  <div class="hint">本は端末の中だけに保存されます。機種変更の前に書き出してください。</div>
+  <div class="hint">本は端末の中だけに保存されます。ブラウザやアプリごとに保存場所が分かれることがあるので、
+  ホーム画面に追加した直後や機種変更の前に、いちど書き出しておくと安心です。装飾と背景の紙も一緒に保存されます。</div>
   <button class="ghost" data-close="1">閉じる</button>
 </div></div>
 
@@ -596,8 +598,15 @@ function renderList(){
   $("#count").textContent = books.length ? books.length+" BOOKS" : "";
 
   if(!arr.length){
-    el.innerHTML='<div class="empty"><b>'+(books.length?"見つかりませんでした":"棚はまだ空です")+'</b>'+
-      (books.length?"検索とジャンルを変えてみてください。":"右下の「＋ 本を追加」から本文を貼り付けます。")+'</div>';
+    if(books.length){
+      el.innerHTML='<div class="empty"><b>見つかりませんでした</b>検索とジャンルを変えてみてください。</div>';
+    }else{
+      // 棚が空のときは、以前の本を引き継ぐ入口もここに出す
+      el.innerHTML='<div class="empty"><b>棚はまだ空です</b>'+
+        '右下の「＋ 本を追加」から本文を貼り付けます。'+
+        '<button class="ghost" id="emptyImport">前に使っていた本を読み込む</button></div>';
+      $("#emptyImport").onclick=()=>openSheet("sheetData");
+    }
     return;
   }
   for(const b of arr){
