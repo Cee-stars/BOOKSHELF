@@ -186,6 +186,41 @@ button{background:none;border:0;cursor:pointer}
 .rprog{position:fixed;left:0;right:0;bottom:0;height:3px;background:rgba(128,128,128,.2)}
 .rprog i{display:block;height:100%;background:var(--c,#FF7A18)}
 
+/* ---------- 文字装飾 ---------- */
+.mk{border-radius:3px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.mk[data-hl="1"]{--fg-red:#C62828;--fg-blue:#1565C0;color:#16171C;padding:.06em 0}
+.mk[data-b="1"]{font-weight:800}
+.mk[data-fg="red"]{color:var(--fg-red,#E5484D)}
+.mk[data-fg="blue"]{color:var(--fg-blue,#3B82F6)}
+
+.stylebar{
+  position:fixed;left:0;right:0;bottom:0;z-index:45;display:none;
+  padding:12px 14px calc(12px + var(--safe-b));
+  background:var(--ink-2);color:var(--text);font-family:var(--ui);
+  border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  box-shadow:0 -12px 34px rgba(0,0,0,.42);
+  user-select:none;-webkit-user-select:none;
+}
+.stylebar.on{display:block}
+.sbrow{display:flex;align-items:center;gap:8px}
+.sbrow + .sbrow{margin-top:10px}
+.sblabel{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.08em;margin:12px 0 8px}
+.sbtn{
+  padding:10px 13px;border-radius:12px;background:var(--ink-3);
+  font-weight:800;font-size:14px;color:var(--text);border:1.5px solid transparent;
+}
+.sbtn:active{transform:scale(.94)}
+.sbtn[data-on="1"]{border-color:var(--g-business)}
+.sbtn.red{color:#FF7B7B}
+.sbtn.blue{color:#7BB8FF}
+.sbtn.wide{flex:1}
+.swatches{display:grid;grid-template-columns:repeat(10,1fr);gap:7px}
+.swatches button{
+  height:0;padding-bottom:100%;border-radius:9px;
+  border:1.5px solid rgba(255,255,255,.20);
+}
+.swatches button:active{transform:scale(.9)}
+
 /* ---------- シート ---------- */
 .sheet{
   position:fixed;inset:0;display:none;z-index:50;align-items:flex-end;
@@ -296,6 +331,22 @@ button{background:none;border:0;cursor:pointer}
     <button class="nav" id="next">次 ›</button>
   </div>
   <div class="rprog"><i id="rbar"></i></div>
+
+  <div class="stylebar" id="styleBar">
+    <div class="sbrow">
+      <button class="sbtn" id="sbBold"><b>B</b> 太字</button>
+      <button class="sbtn red" id="sbRed">赤字</button>
+      <button class="sbtn blue" id="sbBlue">青字</button>
+      <span class="spacer"></span>
+      <button class="sbtn" id="sbClose" aria-label="閉じる">✕</button>
+    </div>
+    <div class="sblabel">文字の背景色</div>
+    <div class="swatches" id="sbColors"></div>
+    <div class="sbrow">
+      <button class="sbtn wide" id="sbNoBg">背景をなくす</button>
+      <button class="sbtn wide" id="sbClear">すべて解除</button>
+    </div>
+  </div>
 </section>
 
 <!-- ============ シート ============ -->
@@ -605,7 +656,9 @@ async function saveBook(){
     created: old?old.created:Date.now(),
     lastRead: old?old.lastRead:0,
     progress: old?(old.text===text?old.progress:0):0,
-    part: old?(old.text===text?old.part:0):0
+    part: old?(old.text===text?old.part:0):0,
+    // 本文が変わると文字位置がずれるので、そのときだけ装飾を捨てる
+    marks: (old && old.text===text && old.marks) ? old.marks : {}
   };
   await DB.put(b);
   books = books.filter(x=>x.id!==b.id); books.push(b);
@@ -620,6 +673,10 @@ function applyReaderStyle(){
   r.style.setProperty("--rb",t.bg);
   r.style.setProperty("--rt",t.tx);
   r.style.color=t.tx;
+  // 背景が暗いときは赤・青を明るめにして読みやすくする
+  const dark = S.th==="night";
+  r.style.setProperty("--fg-red", dark?"#FF7B7B":"#C62828");
+  r.style.setProperty("--fg-blue", dark?"#7BB8FF":"#1565C0");
   $("#page").style.setProperty("--fs",S.fs+"px");
   $("#page").style.setProperty("--lh",S.lh);
   $$("#themes button").forEach(b=>b.dataset.on = b.dataset.th===S.th?"1":"0");
@@ -629,6 +686,10 @@ async function openBook(id){
   cur = books.find(b=>b.id===id);
   if(!cur) return;
   parts = splitParts(cur.text);
+  // 装飾を段落単位で覚えるための通し番号（パートの区切りが変わってもずれにくい）
+  let base=0;
+  parts.forEach(p=>{ p.base=base; base+=p.paras.length; });
+  if(!cur.marks || typeof cur.marks!=="object") cur.marks={};
   partIdx = Math.min(cur.part||0, parts.length-1);
   const c = cur.color || (G[cur.genre]||G.other).c;
   $("#reader").style.setProperty("--c",c);
@@ -643,9 +704,13 @@ function drawPart(toTop=true){
   const h=document.createElement("h2");
   h.textContent = (parts.length===1 && /^パート/.test(p.title)) ? cur.title : p.title;
   page.appendChild(h);
-  for(const t of p.paras){
-    const el=document.createElement("p"); el.textContent=t; page.appendChild(el);
-  }
+  p.paras.forEach((t,j)=>{
+    const el=document.createElement("p");
+    el.dataset.gi = (p.base||0)+j;
+    paintPara(el,t);
+    page.appendChild(el);
+  });
+  hideStyleBar();
   $("#pos").textContent = (partIdx+1)+" / "+parts.length;
   $("#prev").disabled = partIdx===0;
   $("#next").disabled = partIdx===parts.length-1;
@@ -678,8 +743,206 @@ function renderToc(){
   });
 }
 
+/* ============ 文字装飾 ============ */
+/* 背景色 20 色（どれも明るめ。上に黒・赤・青の文字をのせても読める） */
+const HILITE = [
+  {c:"#FFF176",n:"イエロー"},   {c:"#FFD54F",n:"アンバー"},
+  {c:"#FFB74D",n:"オレンジ"},   {c:"#FFAB91",n:"サーモン"},
+  {c:"#FF8A80",n:"レッド"},     {c:"#F48FB1",n:"ピンク"},
+  {c:"#F06292",n:"ローズ"},     {c:"#E1BEE7",n:"ラベンダー"},
+  {c:"#CE93D8",n:"パープル"},   {c:"#B39DDB",n:"バイオレット"},
+  {c:"#9FA8DA",n:"インディゴ"}, {c:"#90CAF9",n:"ブルー"},
+  {c:"#81D4FA",n:"スカイ"},     {c:"#80DEEA",n:"シアン"},
+  {c:"#80CBC4",n:"ティール"},   {c:"#A5D6A7",n:"グリーン"},
+  {c:"#C5E1A5",n:"リーフ"},     {c:"#E6EE9C",n:"ライム"},
+  {c:"#D7CCC8",n:"ブラウン"},   {c:"#CFD8DC",n:"グレー"}
+];
+
+let selTargets = [];   // [{gi,s,e}] いま選んでいる範囲（段落ごと）
+let barLock = false;   // ツールバー操作中は選択解除で閉じない
+let selTimer = null, markTimer = null;
+
+/* --- 段落の描画（装飾つき） --- */
+function paintPara(el,text){
+  const runs = (cur && cur.marks && cur.marks[el.dataset.gi]) || [];
+  const L = text.length;
+  el.textContent = "";
+  let pos = 0;
+  for(const r of runs){
+    const s = Math.max(0,Math.min(L,r.s|0)), e = Math.max(0,Math.min(L,r.e|0));
+    if(e<=s || s<pos) continue;                       // 壊れた範囲は読み飛ばす
+    if(s>pos) el.appendChild(document.createTextNode(text.slice(pos,s)));
+    const sp = document.createElement("span");
+    sp.className = "mk";
+    if(r.bg){ sp.style.background = r.bg; sp.dataset.hl = "1"; }
+    if(r.bold) sp.dataset.b = "1";
+    if(r.fg) sp.dataset.fg = r.fg;
+    sp.textContent = text.slice(s,e);
+    el.appendChild(sp);
+    pos = e;
+  }
+  if(pos<L) el.appendChild(document.createTextNode(text.slice(pos)));
+}
+function repaint(gis){
+  gis.forEach(gi=>{
+    const el = $('#page p[data-gi="'+gi+'"]');
+    if(el) paintPara(el, el.textContent);
+  });
+}
+
+/* --- 範囲の足し引き（重なっても崩れないように区間で持つ） --- */
+function splitAt(runs,x){
+  const out=[];
+  for(const r of runs){
+    if(r.s<x && x<r.e){ out.push({...r,e:x},{...r,s:x}); }
+    else out.push(r);
+  }
+  return out;
+}
+function applyRange(runs,s,e,patch){
+  if(e<=s) return runs;
+  const cut = splitAt(splitAt(runs.map(r=>({...r})),s),e).sort((a,b)=>a.s-b.s);
+  const inside = cut.filter(r=>r.s>=s && r.e<=e);
+  const outside = cut.filter(r=>!(r.s>=s && r.e<=e));
+  const target=[]; let pos=s;
+  for(const r of inside){                              // 装飾のない隙間を埋める
+    if(r.s>pos) target.push({s:pos,e:r.s,bg:null,bold:0,fg:null});
+    target.push(r); pos=r.e;
+  }
+  if(pos<e) target.push({s:pos,e:e,bg:null,bold:0,fg:null});
+  target.forEach(r=>Object.assign(r,patch));
+
+  const all = outside.concat(target).sort((a,b)=>a.s-b.s)
+    .filter(r=>r.e>r.s && (r.bg||r.bold||r.fg));
+  const merged=[];                                     // 同じ装飾が隣り合ったらつなぐ
+  for(const r of all){
+    const p = merged[merged.length-1];
+    if(p && p.e===r.s && p.bg===r.bg && p.bold===r.bold && p.fg===r.fg) p.e=r.e;
+    else merged.push(r);
+  }
+  return merged;
+}
+
+/* --- 選択範囲を「段落の通し番号 + 文字位置」に置き換える --- */
+function readSel(){
+  const sel = document.getSelection();
+  if(!sel || !sel.rangeCount || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  const page = $("#page");
+  if(!page.contains(range.commonAncestorContainer)) return null;
+  const out=[];
+  $$("#page p[data-gi]").forEach(p=>{
+    if(!range.intersectsNode(p)) return;
+    const full = document.createRange(); full.selectNodeContents(p);
+    const r = range.cloneRange();
+    if(r.compareBoundaryPoints(Range.START_TO_START,full)<0) r.setStart(full.startContainer,full.startOffset);
+    if(r.compareBoundaryPoints(Range.END_TO_END,full)>0)     r.setEnd(full.endContainer,full.endOffset);
+    const head = document.createRange();
+    head.setStart(full.startContainer,full.startOffset);
+    head.setEnd(r.startContainer,r.startOffset);
+    const s = head.toString().length;
+    const e = s + r.toString().length;
+    if(e>s) out.push({gi:+p.dataset.gi, s, e});
+  });
+  return out.length?out:null;
+}
+function posInPara(el,off){
+  const w = document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
+  let acc=0,n,last=null;
+  while((n=w.nextNode())){
+    if(off<=acc+n.nodeValue.length) return {node:n,off:off-acc};
+    acc+=n.nodeValue.length; last=n;
+  }
+  return last?{node:last,off:last.nodeValue.length}:{node:el,off:0};
+}
+function restoreSel(){
+  if(!selTargets.length) return;
+  const f=selTargets[0], l=selTargets[selTargets.length-1];
+  const pa=$('#page p[data-gi="'+f.gi+'"]'), pb=$('#page p[data-gi="'+l.gi+'"]');
+  if(!pa||!pb) return;
+  const a=posInPara(pa,f.s), b=posInPara(pb,l.e);
+  try{
+    const r=document.createRange();
+    r.setStart(a.node,a.off); r.setEnd(b.node,b.off);
+    const sel=document.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }catch(err){}
+}
+
+/* --- 選択範囲がすでにその装飾かどうか（押すたびに入 / 切） --- */
+function selHasAll(test){
+  if(!selTargets.length) return false;
+  return selTargets.every(t=>{
+    const runs = ((cur&&cur.marks&&cur.marks[t.gi])||[]).slice().sort((a,b)=>a.s-b.s);
+    let pos=t.s;
+    for(const r of runs){
+      if(r.e<=pos) continue;
+      if(r.s>pos || !test(r)) return false;
+      pos=r.e;
+      if(pos>=t.e) return true;
+    }
+    return pos>=t.e;
+  });
+}
+
+function saveMarks(){
+  if(!cur) return;
+  clearTimeout(markTimer);
+  markTimer = setTimeout(()=>DB.put(cur).catch(()=>toast("装飾を保存できませんでした")),300);
+}
+function applyStyle(patch){
+  if(!cur || !selTargets.length) return;
+  cur.marks = cur.marks || {};
+  for(const t of selTargets){
+    const runs = applyRange(cur.marks[t.gi]||[], t.s, t.e, patch);
+    if(runs.length) cur.marks[t.gi]=runs; else delete cur.marks[t.gi];
+  }
+  saveMarks();
+  repaint(selTargets.map(t=>t.gi));
+  restoreSel();
+  updateBarState();
+}
+
+/* --- ツールバー --- */
+function showStyleBar(){ $("#styleBar").classList.add("on"); updateBarState(); }
+function hideStyleBar(){ $("#styleBar").classList.remove("on"); selTargets=[]; }
+function updateBarState(){
+  $("#sbBold").dataset.on = selHasAll(r=>r.bold)?"1":"0";
+  $("#sbRed").dataset.on  = selHasAll(r=>r.fg==="red")?"1":"0";
+  $("#sbBlue").dataset.on = selHasAll(r=>r.fg==="blue")?"1":"0";
+}
+(function buildSwatches(){
+  const box=$("#sbColors");
+  HILITE.forEach(h=>{
+    const b=document.createElement("button");
+    b.style.background=h.c;
+    b.title=h.n; b.setAttribute("aria-label","背景色 "+h.n);
+    b.onclick=()=>applyStyle({bg:h.c});
+    box.appendChild(b);
+  });
+})();
+$("#sbBold").onclick  = ()=>applyStyle({bold: selHasAll(r=>r.bold)?0:1});
+$("#sbRed").onclick   = ()=>applyStyle({fg: selHasAll(r=>r.fg==="red")?null:"red"});
+$("#sbBlue").onclick  = ()=>applyStyle({fg: selHasAll(r=>r.fg==="blue")?null:"blue"});
+$("#sbNoBg").onclick  = ()=>applyStyle({bg:null});
+$("#sbClear").onclick = ()=>applyStyle({bg:null,bold:0,fg:null});
+$("#sbClose").onclick = ()=>{ document.getSelection().removeAllRanges(); hideStyleBar(); };
+
+$("#styleBar").addEventListener("mousedown",e=>e.preventDefault());  // 選択を保ったまま押せるように
+$("#styleBar").addEventListener("pointerdown",()=>{ barLock=true; });
+document.addEventListener("pointerup",()=>{ if(barLock) setTimeout(()=>{barLock=false;},300); });
+
+document.addEventListener("selectionchange",()=>{
+  clearTimeout(selTimer);
+  selTimer = setTimeout(()=>{
+    if(!$("#reader").classList.contains("on")){ hideStyleBar(); return; }
+    const t = readSel();
+    if(t){ selTargets=t; showStyleBar(); }
+    else if(!barLock) hideStyleBar();   // ボタンを押した拍子に選択が外れても閉じない
+  },140);
+});
+
 /* ============ シート ============ */
-function openSheet(id){ $("#"+id).classList.add("on"); }
+function openSheet(id){ hideStyleBar(); $("#"+id).classList.add("on"); }
 function closeSheets(){ $$(".sheet").forEach(s=>s.classList.remove("on")); }
 $$(".sheet").forEach(s=>{
   s.addEventListener("click",e=>{ if(e.target===s) closeSheets(); });
@@ -705,7 +968,7 @@ function download(name,text,type){
 /* ============ イベント ============ */
 $("#btnAdd").onclick=()=>openEditor(null);
 $("#editBack").onclick=()=>{show("shelf");applyReaderStyle();};
-$("#rBack").onclick=()=>{show("shelf");renderChips();renderList();applyReaderStyle();};
+$("#rBack").onclick=()=>{hideStyleBar();show("shelf");renderChips();renderList();applyReaderStyle();};
 $("#btnSave").onclick=saveBook;
 $("#btnDelete").onclick=async()=>{
   if(!editingId) return;
