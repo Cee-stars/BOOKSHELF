@@ -236,9 +236,20 @@ button{background:none;border:0;cursor:pointer}
 .sline .k{flex:0 0 92px;font-size:13px;color:var(--dim);font-weight:700}
 .stepper{display:flex;gap:8px;flex:1}
 .stepper button{flex:1;padding:12px;border-radius:12px;background:var(--ink-3);font-weight:800}
-.themes{display:flex;gap:8px;flex:1}
-.themes button{flex:1;padding:12px;border-radius:12px;font-weight:800;font-size:13px;border:2px solid transparent}
+.sblock{margin-bottom:14px}
+.sblock .k{display:block;margin-bottom:9px;font-size:13px;color:var(--dim);font-weight:700}
+.sblock .k em{font-style:normal;font-size:11px;opacity:.75;margin-left:8px;font-weight:600}
+.themes{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;max-height:44vh;overflow-y:auto}
+.themes button{
+  padding:9px 3px 7px;border-radius:12px;border:2px solid transparent;
+  display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;
+  /* 暗い紙がシートの背景に溶けないように、内側へ細い輪郭を引く */
+  box-shadow:inset 0 0 0 1px rgba(128,128,128,.32);
+}
+.themes button:active{transform:scale(.94)}
 .themes button[data-on="1"]{border-color:var(--g-business)}
+.themes .ta{font-family:var(--serif);font-size:15px;font-weight:700}
+.themes .tn{font-size:9px;opacity:.72;font-weight:700}
 .toclist{max-height:52vh;overflow-y:auto;margin:0 -4px}
 .toclist button{
   display:block;width:100%;text-align:left;padding:13px 12px;border-radius:12px;
@@ -356,11 +367,10 @@ button{background:none;border:0;cursor:pointer}
     <button data-fs="-1">小さく −</button><button data-fs="1">大きく ＋</button></div></div>
   <div class="sline"><span class="k">行の間隔</span><div class="stepper">
     <button data-lh="-1">狭く −</button><button data-lh="1">広く ＋</button></div></div>
-  <div class="sline"><span class="k">背景</span><div class="themes" id="themes">
-    <button data-th="night" style="background:#12131A;color:#eee">夜</button>
-    <button data-th="paper" style="background:#fff;color:#111">紙</button>
-    <button data-th="sepia" style="background:#F6ECD8;color:#3A2E1E">セピア</button>
-  </div></div>
+  <div class="sblock">
+    <span class="k">背景の紙<em>この本だけに保存されます</em></span>
+    <div class="themes" id="themes"></div>
+  </div>
   <button class="ghost" data-close="1">閉じる</button>
 </div></div>
 
@@ -452,11 +462,36 @@ const S = {
   lh: +(localStorage.getItem("lh")||1.85),
   th: localStorage.getItem("th")||"night"
 };
+/* 紙の色 20 種類。本ごとに選べる（既存の night / paper / sepia は残してある） */
 const THEMES = {
-  night:{bg:"#12131A",tx:"#F2F3F7"},
-  paper:{bg:"#FFFFFF",tx:"#16171C"},
-  sepia:{bg:"#F6ECD8",tx:"#3A2E1E"}
+  paper:   {n:"紙",       bg:"#FFFFFF", tx:"#16171C"},
+  cream:   {n:"クリーム", bg:"#FFF8E7", tx:"#2E2A22"},
+  ivory:   {n:"アイボリー",bg:"#FAF4E6", tx:"#33302A"},
+  sepia:   {n:"セピア",   bg:"#F6ECD8", tx:"#3A2E1E"},
+  linen:   {n:"リネン",   bg:"#F4EFE6", tx:"#322E28"},
+  sand:    {n:"サンド",   bg:"#EFE3D0", tx:"#3A3227"},
+  kraft:   {n:"クラフト", bg:"#E8D9BE", tx:"#3B3023"},
+  mint:    {n:"ミント",   bg:"#E6F2EA", tx:"#1E2E25"},
+  moss:    {n:"モス",     bg:"#E4EADC", tx:"#262E22"},
+  sky:     {n:"スカイ",   bg:"#E7F0F8", tx:"#1D2833"},
+  lavender:{n:"ラベンダー",bg:"#EFEAF6", tx:"#2A2434"},
+  rose:    {n:"ローズ",   bg:"#FBEDEF", tx:"#33262A"},
+  gray:    {n:"グレー",   bg:"#ECEDEF", tx:"#23262B"},
+  slate:   {n:"スレート", bg:"#DFE3E8", tx:"#1F242B"},
+  dusk:    {n:"夕暮れ",   bg:"#1B1F2A", tx:"#E4E8F2"},
+  night:   {n:"夜",       bg:"#12131A", tx:"#F2F3F7"},
+  carbon:  {n:"カーボン", bg:"#16181C", tx:"#E8EAEE"},
+  ink:     {n:"墨",       bg:"#0C0D12", tx:"#DDE1EA"},
+  navy:    {n:"ネイビー", bg:"#101A2B", tx:"#DCE6F5"},
+  forest:  {n:"フォレスト",bg:"#121C18", tx:"#DCEAE2"}
 };
+const THEME_IDS = Object.keys(THEMES);
+// 明るさで判定する（20 色あるので名前では判断しない）
+function isDark(hex){
+  const c=hex.replace("#","");
+  const r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16);
+  return (0.299*r + 0.587*g + 0.114*b) < 128;
+}
 
 const $ = s=>document.querySelector(s);
 const $$ = s=>[...document.querySelectorAll(s)];
@@ -658,7 +693,8 @@ async function saveBook(){
     progress: old?(old.text===text?old.progress:0):0,
     part: old?(old.text===text?old.part:0):0,
     // 本文が変わると文字位置がずれるので、そのときだけ装飾を捨てる
-    marks: (old && old.text===text && old.marks) ? old.marks : {}
+    marks: (old && old.text===text && old.marks) ? old.marks : {},
+    theme: (old && old.theme) || null      // 背景の紙は本文を変えても保つ
   };
   await DB.put(b);
   books = books.filter(x=>x.id!==b.id); books.push(b);
@@ -667,19 +703,46 @@ async function saveBook(){
 }
 
 /* ============ リーダー ============ */
+/* いま使う紙の色。本ごとの設定があればそれを、無ければ既定を使う */
+function readerTheme(){
+  const id = (cur && cur.theme) || S.th;
+  return THEMES[id] ? id : "night";
+}
+function renderThemes(){
+  const box=$("#themes"); box.innerHTML="";
+  for(const id of THEME_IDS){
+    const t=THEMES[id];
+    const b=document.createElement("button");
+    b.dataset.th=id;
+    b.style.background=t.bg; b.style.color=t.tx;
+    b.setAttribute("aria-label","背景 "+t.n);
+    const a=document.createElement("span"); a.className="ta"; a.textContent="Aa";
+    const n=document.createElement("span"); n.className="tn"; n.textContent=t.n;
+    b.appendChild(a); b.appendChild(n);
+    b.onclick=()=>setTheme(id);
+    box.appendChild(b);
+  }
+}
+function setTheme(id){
+  if(!THEMES[id]) return;
+  S.th=id; localStorage.setItem("th",id);        // 次に開く本の既定になる
+  if(cur){ cur.theme=id; saveCur(); }            // いま読んでいる本だけに保存
+  applyReaderStyle();
+}
 function applyReaderStyle(){
-  const t=THEMES[S.th]||THEMES.night;
+  const id=readerTheme();
+  const t=THEMES[id];
   const r=$("#reader");
   r.style.setProperty("--rb",t.bg);
   r.style.setProperty("--rt",t.tx);
   r.style.color=t.tx;
   // 背景が暗いときは赤・青を明るめにして読みやすくする
-  const dark = S.th==="night";
+  const dark = isDark(t.bg);
   r.style.setProperty("--fg-red", dark?"#FF7B7B":"#C62828");
   r.style.setProperty("--fg-blue", dark?"#7BB8FF":"#1565C0");
   $("#page").style.setProperty("--fs",S.fs+"px");
   $("#page").style.setProperty("--lh",S.lh);
-  $$("#themes button").forEach(b=>b.dataset.on = b.dataset.th===S.th?"1":"0");
+  $$("#themes button").forEach(b=>b.dataset.on = b.dataset.th===id?"1":"0");
   document.querySelector('meta[name=theme-color]').setAttribute("content", $("#shelf").classList.contains("on")?"#12131A":t.bg);
 }
 async function openBook(id){
@@ -884,10 +947,11 @@ function selHasAll(test){
   });
 }
 
-function saveMarks(){
+/* 装飾・背景など、いま読んでいる本の変更をまとめて保存する */
+function saveCur(){
   if(!cur) return;
   clearTimeout(markTimer);
-  markTimer = setTimeout(()=>DB.put(cur).catch(()=>toast("装飾を保存できませんでした")),300);
+  markTimer = setTimeout(()=>DB.put(cur).catch(()=>toast("保存できませんでした")),300);
 }
 function applyStyle(patch){
   if(!cur || !selTargets.length) return;
@@ -896,7 +960,7 @@ function applyStyle(patch){
     const runs = applyRange(cur.marks[t.gi]||[], t.s, t.e, patch);
     if(runs.length) cur.marks[t.gi]=runs; else delete cur.marks[t.gi];
   }
-  saveMarks();
+  saveCur();
   repaint(selTargets.map(t=>t.gi));
   restoreSel();
   updateBarState();
@@ -1013,9 +1077,6 @@ $$("[data-lh]").forEach(b=>b.onclick=()=>{
   S.lh=Math.min(2.6,Math.max(1.3,+(S.lh+(+b.dataset.lh)*0.1).toFixed(2)));
   localStorage.setItem("lh",S.lh); applyReaderStyle();
 });
-$$("[data-th]").forEach(b=>b.onclick=()=>{
-  S.th=b.dataset.th; localStorage.setItem("th",S.th); applyReaderStyle();
-});
 $("#mEdit").onclick=()=>{closeSheets();openEditor(moreId);};
 $("#mReset").onclick=async()=>{
   const b=books.find(x=>x.id===moreId);
@@ -1081,6 +1142,7 @@ if("serviceWorker" in navigator){
     books=[]; toast("保存領域を開けませんでした");
   }
   books.forEach(b=>{ if(b.words==null) b.words=words(b.text); });
+  renderThemes();
   applyReaderStyle();
   renderChips();
   renderList();
