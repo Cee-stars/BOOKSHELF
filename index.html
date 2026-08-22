@@ -240,6 +240,8 @@ button{background:none;border:0;cursor:pointer}
 .sblock{margin-bottom:14px}
 .sblock .k{display:block;margin-bottom:9px;font-size:13px;color:var(--dim);font-weight:700}
 .sblock .k em{font-style:normal;font-size:11px;opacity:.75;margin-left:8px;font-weight:600}
+.code{display:inline-block;margin-top:6px;padding:7px 10px;border-radius:9px;background:var(--ink-3);
+  font-family:var(--mono);font-size:12px;color:var(--text);word-break:break-all;user-select:all}
 .themes{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;max-height:44vh;overflow-y:auto}
 .themes button{
   padding:9px 3px 7px;border-radius:12px;border:2px solid transparent;
@@ -389,7 +391,23 @@ button{background:none;border:0;cursor:pointer}
 </div></div>
 
 <div class="sheet" id="sheetData"><div class="inner">
-  <h3>バックアップ</h3>
+  <h3>同期とバックアップ</h3>
+
+  <div class="sblock">
+    <span class="k">ほかの端末と同期<em id="syncState"></em></span>
+    <div id="syncOff">
+      <input class="search" id="syncTok" type="password" placeholder="GitHub トークンを貼り付け" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input class="search" id="syncGid" placeholder="同期コード（2台目だけ入力）" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+      <button class="ghost" id="syncStart">同期を始める</button>
+      <div class="hint">1台目は同期コードを空のままにしてください。表示されたコードを2台目に入れると、同じ本棚になります。</div>
+    </div>
+    <div id="syncOn" hidden>
+      <div class="hint">同期コード<br><code id="syncCode" class="code"></code></div>
+      <button class="ghost" id="syncNow">いま同期する</button>
+      <button class="ghost" id="syncStop">同期をやめる</button>
+    </div>
+  </div>
+
   <button class="ghost" id="dExport">全部を書き出す（.json）</button>
   <button class="ghost" id="dImport">読み込む（.json）</button>
   <input type="file" id="jsonIn" accept="application/json,.json" hidden>
@@ -498,6 +516,8 @@ function isDark(hex){
 const $ = s=>document.querySelector(s);
 const $$ = s=>[...document.querySelectorAll(s)];
 const words = t=>{const m=(t||"").trim().match(/[A-Za-z0-9'’\-]+/g);return m?m.length:0;};
+/* 同期のときに新しい方を見分けるため、変更した本には時刻を押す */
+function touch(b){ if(b) b.updated=Date.now(); return b; }
 
 function toast(msg){
   const t=$("#toast"); t.textContent=msg; t.classList.add("on");
@@ -705,10 +725,11 @@ async function saveBook(){
     marks: (old && old.text===text && old.marks) ? old.marks : {},
     theme: (old && old.theme) || null      // 背景の紙は本文を変えても保つ
   };
-  await DB.put(b);
+  await DB.put(touch(b));
   books = books.filter(x=>x.id!==b.id); books.push(b);
   renderChips(); renderList(); show("shelf");
   toast(editingId?"保存しました":"棚に入れました");
+  SYNC.later();
 }
 
 /* ============ リーダー ============ */
@@ -794,9 +815,9 @@ function drawPart(toTop=true){
 let saveTimer=null;
 function saveProgress(prog){
   if(!cur) return;
-  cur.part=partIdx; cur.progress=prog; cur.lastRead=Date.now();
+  cur.part=partIdx; cur.progress=prog; cur.lastRead=Date.now(); touch(cur);
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>DB.put(cur).catch(()=>{}),400);
+  saveTimer=setTimeout(()=>{DB.put(cur).catch(()=>{});SYNC.later();},400);
 }
 function move(d){
   const n=partIdx+d;
@@ -959,8 +980,9 @@ function selHasAll(test){
 /* 装飾・背景など、いま読んでいる本の変更をまとめて保存する */
 function saveCur(){
   if(!cur) return;
+  touch(cur);
   clearTimeout(markTimer);
-  markTimer = setTimeout(()=>DB.put(cur).catch(()=>toast("保存できませんでした")),300);
+  markTimer = setTimeout(()=>{DB.put(cur).catch(()=>toast("保存できませんでした"));SYNC.later();},300);
 }
 function applyStyle(patch){
   if(!cur || !selTargets.length) return;
@@ -1029,6 +1051,127 @@ function openMore(id){
   openSheet("sheetMore");
 }
 
+/* ============ 同期（GitHub の非公開 Gist を保管庫にする） ============
+   ・本 1 冊 = ファイル 1 つ。まとめて 1 ファイルにすると容量制限に当たるため
+   ・index.json に「どの本がいつ更新されたか」だけ置き、差分だけやり取りする
+   ・同じ本が両方で変わっていたら、更新時刻が新しい方を採用する          */
+const SYNC = (()=>{
+  const API="https://api.github.com";
+  const IDX="index.json";
+  const fileOf = id=>"b-"+id+".json";
+  const get = k=>localStorage.getItem(k)||"";
+  const set = (k,v)=>{ v?localStorage.setItem(k,v):localStorage.removeItem(k); };
+
+  let running=false, timer=null;
+  const on = ()=> !!(get("syncToken") && get("syncGist"));
+
+  async function call(path,opt){
+    const r = await fetch(API+path, Object.assign({
+      headers:{ "Authorization":"Bearer "+get("syncToken"),
+                "Accept":"application/vnd.github+json",
+                "Content-Type":"application/json" }
+    }, opt||{}));
+    if(r.status===401) throw new Error("トークンが正しくないようです");
+    if(r.status===403) throw new Error("トークンに gist の権限がないようです");
+    if(r.status===404) throw new Error("同期コードが見つかりません");
+    if(!r.ok) throw new Error("通信に失敗しました（"+r.status+"）");
+    return r.json();
+  }
+  // 1MB を超えるファイルは中身が省略されて返るので、その場合は実体を取りに行く
+  async function body(f){
+    if(!f) return null;
+    if(!f.truncated) return f.content;
+    const r = await fetch(f.raw_url);
+    if(!r.ok) throw new Error("本文を取得できませんでした");
+    return r.text();
+  }
+
+  async function localAll(){ return (await DB.all())||[]; }
+  const stamp = r=>r.updated||r.lastRead||r.created||1;
+
+  async function run(strict){
+    if(!on() || running) return false;
+    running=true; paint("同期中…");
+    try{
+      const gist = await call("/gists/"+get("syncGist"));
+      const files = gist.files||{};
+      const remoteIdx = files[IDX] ? JSON.parse(await body(files[IDX])) : {};
+
+      const local = await localAll();
+      const localMap = {}; local.forEach(r=>localMap[r.id]=r);
+
+      const ids = new Set([...Object.keys(localMap), ...Object.keys(remoteIdx)]);
+      const pushFiles = {};          // こちらが新しい → 送る
+      const pullIds = [];            // 向こうが新しい → 取り込む
+      const nextIdx = {};
+
+      for(const id of ids){
+        const L=localMap[id], R=remoteIdx[id];
+        const lt=L?stamp(L):0, rt=R?(R.updated||0):0;
+        if(rt>lt){ pullIds.push(id); nextIdx[id]={updated:rt,deleted:R.deleted?1:0}; }
+        else if(L){ pushFiles[fileOf(id)]={content:JSON.stringify(L)};
+                    nextIdx[id]={updated:lt,deleted:L.deleted?1:0}; }
+      }
+
+      // 取り込み
+      let got=0;
+      for(const id of pullIds){
+        const txt = await body(files[fileOf(id)]);
+        if(txt==null) continue;
+        const rec = JSON.parse(txt);
+        rec.id=id; if(!rec.updated) rec.updated=nextIdx[id].updated;
+        await DB.put(rec); got++;
+      }
+      // 送り出し（index は毎回まとめて更新する）
+      const changed = Object.keys(pushFiles).length;
+      if(changed || JSON.stringify(remoteIdx)!==JSON.stringify(nextIdx)){
+        pushFiles[IDX]={content:JSON.stringify(nextIdx)};
+        await call("/gists/"+get("syncGist"),{method:"PATCH",body:JSON.stringify({files:pushFiles})});
+      }
+
+      if(got){                        // 取り込んだものを画面へ
+        books = ((await DB.all())||[]).filter(r=>!r.deleted);
+        books.forEach(b=>{ if(b.words==null) b.words=words(b.text); });
+        renderChips(); renderList();
+        if(cur){ const f=books.find(b=>b.id===cur.id); if(f && f!==cur) cur=f; }
+      }
+      set("syncAt",String(Date.now()));
+      paint(got?(got+"冊を受け取りました"):"同期しました");
+      return true;
+    }catch(e){
+      paint(e.message||"同期できませんでした");
+      if(strict) throw e;              // 接続のときは理由をそのまま伝える
+      return false;
+    }finally{ running=false; }
+  }
+
+  function later(){ if(!on()) return; clearTimeout(timer); timer=setTimeout(run,2500); }
+
+  async function connect(token,gid){
+    set("syncToken",token);
+    if(gid){ set("syncGist",gid); }
+    else{
+      const g = await call("/gists",{method:"POST",body:JSON.stringify({
+        description:"BOOKSHELF の本棚（このファイルは消さないでください）",
+        public:false, files:{[IDX]:{content:"{}"}}
+      })});
+      set("syncGist",g.id);
+    }
+    await run(true);
+    return get("syncGist");
+  }
+  function disconnect(){ set("syncToken",""); set("syncGist",""); set("syncAt",""); }
+
+  function paint(msg){
+    const s=$("#syncState"); if(s && msg) s.textContent=msg;
+    const box=$("#sheetData"); if(!box) return;
+    $("#syncOff").hidden = on();
+    $("#syncOn").hidden  = !on();
+    if(on()) $("#syncCode").textContent = get("syncGist");
+  }
+  return {on,run,later,connect,disconnect,paint,code:()=>get("syncGist")};
+})();
+
 /* ============ バックアップ ============ */
 function download(name,text,type){
   const blob=new Blob([text],{type:type||"application/json"});
@@ -1046,9 +1189,11 @@ $("#btnSave").onclick=saveBook;
 $("#btnDelete").onclick=async()=>{
   if(!editingId) return;
   if(!confirm("この本を削除します。元に戻せません。")) return;
-  await DB.del(editingId);
+  // 消した印だけ残す。これが無いと、同期のたびに他の端末から本が戻ってきてしまう
+  await DB.put({id:editingId, deleted:1, updated:Date.now()});
   books=books.filter(b=>b.id!==editingId);
   renderChips(); renderList(); show("shelf"); toast("削除しました");
+  SYNC.later();
 };
 $("#fText").addEventListener("input",updateStat);
 $("#fTitle").addEventListener("input",()=>{ if(!fGenre){autoG=detectGenre($("#fTitle").value,$("#fText").value);renderGenrePills();renderColors();} });
@@ -1089,10 +1234,30 @@ $$("[data-lh]").forEach(b=>b.onclick=()=>{
 $("#mEdit").onclick=()=>{closeSheets();openEditor(moreId);};
 $("#mReset").onclick=async()=>{
   const b=books.find(x=>x.id===moreId);
-  b.part=0;b.progress=0;await DB.put(b);
-  closeSheets();renderList();toast("最初に戻しました");
+  b.part=0;b.progress=0;await DB.put(touch(b));
+  closeSheets();renderList();toast("最初に戻しました");SYNC.later();
 };
-$("#btnData").onclick=()=>openSheet("sheetData");
+$("#btnData").onclick=()=>{openSheet("sheetData");SYNC.paint(SYNC.on()?"":"まだ設定されていません");};
+$("#syncStart").onclick=async()=>{
+  const tok=$("#syncTok").value.trim(), gid=$("#syncGid").value.trim();
+  if(!tok){ toast("トークンを貼り付けてください"); return; }
+  const btn=$("#syncStart"); btn.disabled=true; SYNC.paint("接続中…");
+  try{
+    await SYNC.connect(tok,gid);
+    $("#syncTok").value=""; $("#syncGid").value="";
+    toast("同期を始めました");
+  }catch(e){
+    SYNC.disconnect(); SYNC.paint(e.message||"接続できませんでした");
+    toast(e.message||"接続できませんでした");
+  }finally{ btn.disabled=false; SYNC.paint(); }
+};
+$("#syncNow").onclick=async()=>{ await SYNC.run(); };
+$("#syncStop").onclick=()=>{
+  if(!confirm("この端末の同期を止めます。本はこの端末に残ります。")) return;
+  SYNC.disconnect(); SYNC.paint("同期をやめました"); toast("同期をやめました");
+};
+// 別の端末で足された本を、戻ってきたときに拾う
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) SYNC.later(); });
 $("#dExport").onclick=()=>{
   download("bookshelf-"+new Date().toISOString().slice(0,10)+".json",JSON.stringify(books));
   toast("書き出しました");
@@ -1108,10 +1273,12 @@ $("#jsonIn").onchange=e=>{
       for(const b of arr){
         if(!b.id||!b.title) continue;
         b.words=b.words||words(b.text);
+        if(!b.updated) touch(b);
         await DB.put(b);
         books=books.filter(x=>x.id!==b.id); books.push(b);
       }
       renderChips();renderList();closeSheets();toast(arr.length+"冊を読み込みました");
+      SYNC.later();
     }catch(err){ toast("このファイルは読み込めません"); }
   };
   r.readAsText(f);
@@ -1146,15 +1313,17 @@ if("serviceWorker" in navigator){
 /* ============ 起動 ============ */
 (async function init(){
   try{
-    books = await DB.all() || [];
+    // 消した印（tombstone）は棚に出さない
+    books = ((await DB.all()) || []).filter(r=>!r.deleted);
   }catch(e){
     books=[]; toast("保存領域を開けませんでした");
   }
-  books.forEach(b=>{ if(b.words==null) b.words=words(b.text); });
+  books.forEach(b=>{ if(b.words==null) b.words=words(b.text); if(!b.updated) b.updated=b.lastRead||b.created||1; });
   renderThemes();
   applyReaderStyle();
   renderChips();
   renderList();
+  if(SYNC.on()) SYNC.run();      // 起動時にほかの端末の変更を取り込む
 })();
 </script>
 </body>

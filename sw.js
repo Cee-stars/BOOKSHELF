@@ -1,5 +1,5 @@
 // BOOKSHELF — オフライン用のキャッシュ
-const CACHE = "bookshelf-v1";
+const CACHE = "bookshelf-v2";
 const FILES = ["./", "./index.html"];
 
 self.addEventListener("install", e => {
@@ -16,14 +16,28 @@ self.addEventListener("activate", e => {
 
 // ネットがあれば最新を取り、無ければキャッシュを返す
 self.addEventListener("fetch", e => {
-  if (e.request.method !== "GET") return;
+  const req = e.request;
+  if (req.method !== "GET") return;
+
+  // このサイト以外（GitHub API など）には手を出さない。
+  // 横取りするとトークン付きの応答をキャッシュしてしまい、
+  // 通信に失敗したときには index.html が返ってしまうため。
+  let url;
+  try { url = new URL(req.url); } catch (err) { return; }
+  if (url.origin !== self.location.origin) return;
+
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then(res => {
         const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
         return res;
       })
-      .catch(() => caches.match(e.request).then(r => r || caches.match("./index.html")))
+      .catch(() => caches.match(req).then(r => {
+        if (r) return r;
+        // ページを開こうとしたときだけ、控えの index.html を返す
+        if (req.mode === "navigate") return caches.match("./index.html");
+        return Response.error();
+      }))
   );
 });
