@@ -74,6 +74,13 @@ button{background:none;border:0;cursor:pointer}
   display:grid;place-items:center;font-size:17px;font-weight:700;color:var(--text);
 }
 .iconbtn:active{transform:scale(.94)}
+/* 同期の状態を示す小さな点 */
+#btnData{position:relative}
+.dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;display:none}
+.dot[data-s="ok"]{display:block;background:var(--g-fantasy)}
+.dot[data-s="busy"]{display:block;background:var(--g-adventure);animation:dotbeat 1s ease-in-out infinite}
+.dot[data-s="err"]{display:block;background:var(--g-horror)}
+@keyframes dotbeat{50%{opacity:.2}}
 .textbtn{padding:9px 14px;border-radius:999px;background:var(--ink-3);font-size:14px;font-weight:700}
 
 /* ---------- 棚 ---------- */
@@ -281,7 +288,7 @@ button{background:none;border:0;cursor:pointer}
     <h1>BOOKSHELF</h1>
     <span class="count" id="count"></span>
     <span class="spacer"></span>
-    <button class="iconbtn" id="btnData" aria-label="バックアップ">⇅</button>
+    <button class="iconbtn" id="btnData" aria-label="同期とバックアップ">⇅<i class="dot" id="syncDot" data-s="off"></i></button>
   </header>
   <div class="scroll">
     <div class="tools">
@@ -1095,7 +1102,7 @@ const SYNC = (()=>{
 
   async function run(strict){
     if(!on() || running) return false;
-    running=true; paint("同期中…");
+    running=true; paint("同期中…","busy");
     try{
       const gist = await call("/gists/"+get("syncGist"));
       const files = gist.files||{};
@@ -1140,10 +1147,10 @@ const SYNC = (()=>{
         if(cur){ const f=books.find(b=>b.id===cur.id); if(f && f!==cur) cur=f; }
       }
       set("syncAt",String(Date.now()));
-      paint(got?(got+"冊を受け取りました"):"同期しました");
+      paint(got?(got+"冊を受け取りました"):"同期しました","ok");
       return true;
     }catch(e){
-      paint(e.message||"同期できませんでした");
+      paint(e.message||"同期できませんでした","err");
       if(strict) throw e;              // 接続のときは理由をそのまま伝える
       return false;
     }finally{ running=false; }
@@ -1162,18 +1169,32 @@ const SYNC = (()=>{
       set("syncGist",g.id);
     }
     await run(true);
+    start();
     return get("syncGist");
   }
-  function disconnect(){ set("syncToken",""); set("syncGist",""); set("syncAt",""); }
+  function disconnect(){ set("syncToken",""); set("syncGist",""); set("syncAt",""); clearInterval(beat); }
 
-  function paint(msg){
+  function paint(msg,state){
     const s=$("#syncState"); if(s && msg) s.textContent=msg;
+    const d=$("#syncDot");
+    if(d) d.dataset.s = !on() ? "off" : (state || d.dataset.s || "ok");
     const box=$("#sheetData"); if(!box) return;
     $("#syncOff").hidden = on();
     $("#syncOn").hidden  = !on();
     if(on()) $("#syncCode").textContent = get("syncGist");
   }
-  return {on,run,later,connect,disconnect,paint,code:()=>get("syncGist")};
+
+  /* 開いたままでも、もう一方の端末の変更を拾えるように定期的に見に行く */
+  let beat=null;
+  function start(){
+    clearInterval(beat);
+    if(!on()) return;
+    beat = setInterval(()=>{ if(!document.hidden) run(); }, 60000);
+  }
+  // 電波が戻ったら、送れていなかった分を送る
+  window.addEventListener("online", ()=>later());
+
+  return {on,run,later,connect,disconnect,paint,start,code:()=>get("syncGist")};
 })();
 
 /* ============ バックアップ ============ */
@@ -1188,7 +1209,7 @@ function download(name,text,type){
 /* ============ イベント ============ */
 $("#btnAdd").onclick=()=>openEditor(null);
 $("#editBack").onclick=()=>{show("shelf");applyReaderStyle();};
-$("#rBack").onclick=()=>{hideStyleBar();show("shelf");renderChips();renderList();applyReaderStyle();};
+$("#rBack").onclick=()=>{hideStyleBar();show("shelf");renderChips();renderList();applyReaderStyle();SYNC.later();};
 $("#btnSave").onclick=saveBook;
 $("#btnDelete").onclick=async()=>{
   if(!editingId) return;
@@ -1319,7 +1340,8 @@ if("serviceWorker" in navigator){
   renderChips();
   renderList();
   $("#appVer").textContent = "版：" + APP_VER;
-  if(SYNC.on()) SYNC.run();      // 起動時にほかの端末の変更を取り込む
+  SYNC.paint("");                // 同期の状態を点で表す
+  if(SYNC.on()){ SYNC.run(); SYNC.start(); }   // 起動時に取り込み、以降は定期的に見に行く
 })();
 </script>
 </body>
