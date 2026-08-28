@@ -53,6 +53,8 @@ body{
 }
 button,input,textarea,select{font:inherit;color:inherit}
 button{background:none;border:0;cursor:pointer}
+/* display を指定した要素にも hidden を効かせる（.foot .play などが display:flex のため） */
+[hidden]{display:none!important}
 
 .view{position:fixed;inset:0;display:none;flex-direction:column}
 .view.on{display:flex}
@@ -230,6 +232,122 @@ button{background:none;border:0;cursor:pointer}
 }
 .swatches button:active{transform:scale(.9)}
 
+/* ---------- 読み上げ ---------- */
+/* 画面の下は .foot と .stylebar がすでに使っている。3つ目を並べると渋滞するので、
+   同じ場所に重ねて出し分ける。読み上げ中は .foot を隠し、文字を選んだあいだだけ
+   .stylebar（z-index:45）が上にかぶさる。 */
+
+/* .foot の中の「聞く」＝読み上げの入口。押しやすいよう親指の届く下に置く */
+.foot .play{
+  display:flex;align-items:center;gap:7px;padding-left:15px;padding-right:15px;
+  box-shadow:inset 0 0 0 1.5px rgba(128,128,128,.34);
+}
+
+/* 記号は端末のフォントで見た目が変わるので、三角と四角は CSS で描く */
+.ic{
+  /* 枠で図形を描くので、幅に枠を含めない（全体の border-box だと潰れる） */
+  box-sizing:content-box;
+  display:block;width:0;height:0;border-style:solid;
+  border-width:9px 0 9px 15px;border-color:transparent transparent transparent currentColor;
+  margin-left:3px;                       /* ▶ 再生 */
+}
+.ic.sm{border-width:6px 0 6px 10px;margin-left:2px}
+.ic.sq{width:13px;height:13px;border-width:0;background:currentColor;border-radius:2px;margin-left:0}
+
+.speakbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;display:none;
+  padding:12px 14px calc(12px + var(--safe-b));
+  background:var(--ink-2);color:var(--text);font-family:var(--ui);
+  border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  box-shadow:0 -12px 34px rgba(0,0,0,.42);
+  user-select:none;-webkit-user-select:none;
+}
+.speakbar.on{display:block}
+/* 紙が 20 種類あるので、バーの中だけは既存の .stylebar と同じ濃い面にして
+   どの紙の上でも同じ見え方にする（紙の上に置く印は下の .sp で作る） */
+
+/* いま何パート目かを、バーの上ふちの細い線で見せる（.rprog はバーに隠れるため） */
+.spkprog{
+  position:absolute;left:0;right:0;top:0;height:2px;overflow:hidden;
+  border-radius:18px 18px 0 0;background:rgba(128,128,128,.22);
+}
+.spkprog i{display:block;height:100%;background:var(--c,#FF7A18)}
+
+.spkrow{display:flex;align-items:center;gap:8px}
+.spkrow + .spkrow{margin-top:10px}
+.spklabel{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--dim)}
+.spkbtn{
+  width:44px;height:44px;border-radius:13px;background:var(--ink-3);
+  display:grid;place-items:center;font-size:19px;font-weight:800;color:var(--text);
+}
+.spkbtn:active{transform:scale(.94)}
+/* いま何倍かは、数字を大きく出して一目で分かるようにする */
+.spkrate{
+  min-width:64px;text-align:center;font-family:var(--display);
+  font-size:20px;font-weight:900;line-height:1;
+}
+.spkrate em{font-style:normal;font-size:11px;font-weight:700;color:var(--dim);margin-left:2px}
+.spkpos{font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+.spkvoice{padding:13px 14px;border-radius:13px;background:var(--ink-3);font-size:13.5px;font-weight:800}
+.spkvoice:active{transform:scale(.94)}
+
+/* 下の段はよく押すものだけを大きく並べる */
+.spkmain{gap:10px}
+.spkbig{
+  flex:1;height:58px;border-radius:16px;background:var(--ink-3);
+  font-size:14px;font-weight:800;color:var(--text);
+}
+.spkbig:active{transform:scale(.96)}
+.spkplay{
+  flex:0 0 68px;width:68px;height:68px;border-radius:50%;
+  background:var(--g-business);color:#12131A;display:grid;place-items:center;
+}
+.spkplay:active{transform:scale(.94)}
+.spkplay .ic{border-width:11px 0 11px 18px;margin-left:4px}
+/* 読み上げ中は一時停止の形（棒2本）に変わる */
+.speakbar[data-play="1"] .spkplay .ic{
+  width:6px;height:20px;border-width:0 6px;border-color:currentColor;margin-left:0;
+}
+.spkstop{
+  flex:0 0 58px;width:58px;height:58px;border-radius:16px;background:var(--ink-3);
+  display:grid;place-items:center;gap:3px;color:var(--dim);font-size:10px;font-weight:800;
+}
+.spkstop:active{transform:scale(.96)}
+
+/* 読み上げ中だけ、下の場所を .foot から読み上げバーに明け渡す */
+body[data-speak="1"] .foot{display:none}
+body[data-speak="1"] .page{padding-bottom:calc(206px + var(--safe-b))}
+body[data-speak="1"] .toast{bottom:calc(160px + var(--safe-b))}
+
+/* ---------- いま読んでいる文 ---------- */
+/* 文字装飾（.mk）は「色のついた背景」。読み上げの印はそれと必ず見分けたいので、
+   色は使わず「灰色の帯 ＋ 文字色の下線」で示す。灰色は rgba(128,128,128,…) なので
+   明るい紙でも暗い紙でも同じように見える。 */
+.sp{-webkit-box-decoration-break:clone;box-decoration-break:clone}
+body[data-speak="1"] .sp{cursor:pointer}
+body[data-speak="1"] .sp[data-on="1"]{
+  border-radius:2px;
+  background:rgba(128,128,128,.20);
+  box-shadow:inset 0 -2px 0 0 currentColor;
+  transition:background .18s;
+}
+/* 「読んでいる文を目立たせる」を選んだとき、ほかの段落を薄くする */
+body[data-speak="1"][data-focus="1"] .page p{opacity:.45;transition:opacity .22s}
+body[data-speak="1"][data-focus="1"] .page p[data-now="1"]{opacity:1}
+
+/* ---------- 読み上げの設定シート ---------- */
+/* 選んでいる印は、既存の .themes / .sbtn と同じオレンジの枠。
+   inset の影で描くので、大きさが変わらず既存のボタンにも影響しない */
+.stepper button[data-on="1"]{box-shadow:inset 0 0 0 1.5px var(--g-business)}
+.rates{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.rates button{
+  padding:12px 4px;border-radius:12px;background:var(--ink-3);
+  font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text);
+}
+.rates button:active{transform:scale(.94)}
+.rates button[data-on="1"]{box-shadow:inset 0 0 0 1.5px var(--g-business)}
+#spkVoices{max-height:32vh}
+
 /* ---------- シート ---------- */
 .sheet{
   position:fixed;inset:0;display:none;z-index:50;align-items:flex-end;
@@ -350,10 +468,34 @@ button{background:none;border:0;cursor:pointer}
   </div>
   <div class="foot">
     <button class="nav" id="prev">‹ 前</button>
+    <button class="nav play" id="btnSpeak" aria-label="読み上げを始める"><i class="ic sm"></i>聞く</button>
     <span class="pos" id="pos"></span>
     <button class="nav" id="next">次 ›</button>
   </div>
   <div class="rprog"><i id="rbar"></i></div>
+
+  <div class="speakbar" id="speakBar">
+    <div class="spkprog"><i id="spkBar"></i></div>
+
+    <!-- 上の段：速さと声。数字が大きいので、いま何倍かがすぐ分かる -->
+    <div class="spkrow">
+      <span class="spklabel">速さ</span>
+      <button class="spkbtn" id="spkSlow" aria-label="ゆっくりにする">−</button>
+      <span class="spkrate" id="spkRate" role="status" aria-live="polite">1.0<em>倍</em></span>
+      <button class="spkbtn" id="spkFast" aria-label="速くする">＋</button>
+      <span class="spacer"></span>
+      <span class="spkpos" id="spkPos"></span>
+      <button class="spkvoice" id="spkVoice">声</button>
+    </div>
+
+    <!-- 下の段：よく押すものだけ。指の届くいちばん下に大きく置く -->
+    <div class="spkrow spkmain">
+      <button class="spkbig" id="spkBack">‹‹ 前の文</button>
+      <button class="spkplay" id="spkPlay" aria-label="再生と一時停止"><i class="ic"></i></button>
+      <button class="spkbig" id="spkFwd">次の文 ››</button>
+      <button class="spkstop" id="spkStop" aria-label="読み上げをやめる"><i class="ic sq"></i><span>やめる</span></button>
+    </div>
+  </div>
 
   <div class="stylebar" id="styleBar">
     <div class="sbrow">
@@ -389,6 +531,47 @@ button{background:none;border:0;cursor:pointer}
 <div class="sheet" id="sheetToc"><div class="inner">
   <h3>目次</h3>
   <div class="toclist" id="toc"></div>
+  <button class="ghost" data-close="1">閉じる</button>
+</div></div>
+
+<div class="sheet" id="sheetSpeak"><div class="inner">
+  <h3>読み上げの設定</h3>
+
+  <div class="sblock">
+    <span class="k">速さ<em>いまは <span id="spkRateNow">1.0</span> 倍</em></span>
+    <div class="rates" id="spkRates">
+      <button data-rate="0.5">0.5x</button>
+      <button data-rate="0.6">0.6x</button>
+      <button data-rate="0.75">0.75x</button>
+      <button data-rate="0.9">0.9x</button>
+      <button data-rate="1">1.0x</button>
+      <button data-rate="1.25">1.25x</button>
+      <button data-rate="1.5">1.5x</button>
+      <button data-rate="2">2.0x</button>
+    </div>
+  </div>
+
+  <div class="sblock">
+    <span class="k">声<em>押すと、その声で少し読みます</em></span>
+    <!-- 中身はエンジン側が作る。1行の形は下のとおり
+         <button data-voice="…" data-on="1"><span class="n">US</span>Samantha</button> -->
+    <div class="toclist" id="spkVoices"></div>
+    <div class="hint" id="spkVoiceHint">英語の声がひとつも見つからないときは、
+      iPhone の「設定 › アクセシビリティ › 読み上げコンテンツ › 声」から英語の声を追加してください。</div>
+  </div>
+
+  <div class="sline"><span class="k">文と文の間</span><div class="stepper" id="spkGap">
+    <button data-gap="0">なし</button><button data-gap="0.4">少し</button><button data-gap="0.9">しっかり</button></div></div>
+
+  <div class="sline"><span class="k">最後まで読んだら</span><div class="stepper" id="spkAuto">
+    <button data-auto="1">次へ進む</button><button data-auto="0">止まる</button></div></div>
+
+  <div class="sline"><span class="k">読んでいる文</span><div class="stepper" id="spkFocus">
+    <button data-focus="1">目立たせる</button><button data-focus="0">そのまま</button></div></div>
+
+  <div class="sline"><span class="k">読み上げ中の画面</span><div class="stepper" id="spkWake">
+    <button data-wake="1">消さない</button><button data-wake="0">ふつう</button></div></div>
+
   <button class="ghost" data-close="1">閉じる</button>
 </div></div>
 
@@ -430,7 +613,7 @@ button{background:none;border:0;cursor:pointer}
 
 <script>
 "use strict";
-const APP_VER = "2026-08-22 同期対応";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-08-22 読み上げ対応";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
@@ -787,6 +970,7 @@ function applyReaderStyle(){
   document.querySelector('meta[name=theme-color]').setAttribute("content", $("#shelf").classList.contains("on")?"#12131A":t.bg);
 }
 async function openBook(id){
+  SPEAK.stop();
   cur = books.find(b=>b.id===id);
   if(!cur) return;
   parts = splitParts(cur.text);
@@ -890,7 +1074,7 @@ function paintPara(el,text){
 function repaint(gis){
   gis.forEach(gi=>{
     const el = $('#page p[data-gi="'+gi+'"]');
-    if(el) paintPara(el, el.textContent);
+    if(el){ paintPara(el, el.textContent); TTS.wrapSentences(el); }
   });
 }
 
@@ -1197,6 +1381,828 @@ const SYNC = (()=>{
   return {on,run,later,connect,disconnect,paint,start,code:()=>get("syncGist")};
 })();
 
+/* ============ 読み上げ（音声エンジン） ============
+   index.html の <script> の中、SYNC の定義のあとあたりに丸ごと貼る想定。
+   画面は作らない。UI からは TTS.play() / TTS.pause() などを呼ぶ。
+
+   考え方
+   ・本文は #page の中にすでに描かれているものを読む（marks が付いていても
+     p.textContent は元の本文と同じ並びなので、文字位置がずれない）
+   ・1 回の発話に渡すのは 1 文（長ければさらに短く切る）。
+     長い文をまるごと渡すと途中で切れるブラウザがあるため
+   ・onend が来ないことがあるので、時計でも終わりを見張る
+   ・iOS は最初の発話をタップの中で呼ばないと鳴らない。play() は
+     タップハンドラから同期で呼ぶこと（中で await しない）          */
+const TTS = (()=>{
+  const SS  = (typeof window!=="undefined" && window.speechSynthesis) || null;
+  const UA  = (typeof navigator!=="undefined" && navigator.userAgent) || "";
+  const IOS = /iPad|iPhone|iPod/.test(UA) ||
+              (/Macintosh/.test(UA) && (navigator.maxTouchPoints||0) > 1);
+  const CHROMIUM = /Chrome|Chromium|Edg\//.test(UA) && !IOS;
+
+  /* ---- 設定（UI から TTS.config() で上書きできる） ---- */
+  const CFG = {
+    page: "#page",        // 本文の入れ物
+    maxChars: 180,        // 1 回の発話に渡す上限。長いと途中で止まる端末がある
+    minChars: 60,         // 速度が遅いときでもこれ以下には刻まない
+    readHeading: true,    // 見出し（h2）も読む
+    gapMs: 90,            // 文と文のあいだの待ち。cancel 直後の speak 対策も兼ねる
+    startMs: 2200,        // 話し始めるのを待つ時間。過ぎたら鳴っていないとみなす
+    pollMs: 400,          // 見張りの間隔
+    pauseOnHide: IOS,     // 画面を離れたら止める（iOS は裏に回ると壊れるため）
+    autoNext: true,       // パートの終わりで次へ進む
+    wrapClass: "",        // "sp" を入れると、文を <span class="sp" data-si="n"> で包む
+    sampleOnVoice: true   // 声を選んだら、その場で少し読んで聞かせる
+  };
+
+  /* ---- 記憶する設定 ---- */
+  const LS = {
+    get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } },
+    set(k,v){ try{ localStorage.setItem(k,String(v)); }catch(e){} }
+  };
+  const clamp = (n,a,b)=>Math.min(b,Math.max(a,n));
+  let rate     = clamp(parseFloat(LS.get("ttsRate","1"))||1, .5, 2);
+  let wantURI  = LS.get("ttsVoice","");
+  let wantName = LS.get("ttsVoiceName","");
+  let autoNext = LS.get("ttsAuto","1")!=="0";
+
+  /* ---- 状態 ---- */
+  let voices = [];              // 使える声
+  let queue  = [];              // いま読むもの [{el,gi,s,e,text}]
+  let qi     = -1;              // いま読んでいる番号
+  let mode   = "idle";          // idle | playing | paused | ended
+  let token  = 0;               // 古いコールバックを捨てるための番号
+  let cu     = null;            // いまの utterance
+  const keep = [];              // GC で消されると onend が来なくなるので手元に残す
+  let wantPause = false, softPause = false, needRestart = false, hidPause = false;
+  let spokeAt = 0, aliveAt = 0, startedOK = false, retryAt = -1, retryN = 0;
+  let tPoll = null, tGap = null, tChk = null, tVoice = null, vTries = 0;
+  let mo = null, moT = null, lastSelf = 0, emptyRuns = 0;
+
+  /* ============ 外への通知 ============ */
+  const subs = {};
+  function on(name, fn){
+    (subs[name] = subs[name] || []).push(fn);
+    return ()=>off(name, fn);
+  }
+  function off(name, fn){
+    const a = subs[name]; if(!a) return;
+    const i = a.indexOf(fn); if(i>=0) a.splice(i,1);
+  }
+  function emit(name, detail){
+    (subs[name]||[]).slice().forEach(f=>{ try{ f(detail); }catch(e){} });
+    try{ document.dispatchEvent(new CustomEvent("tts:"+name,{detail:detail})); }catch(e){}
+  }
+  /* ============ 画面を消させない（任意） ============
+     iOS は画面が消えると読み上げも止まるので、聞いているあいだだけ点けておく。
+     Safari 16.4 より前や、対応していない端末では黙って何もしない                */
+  let wakeOn = LS.get("ttsWake","1")!=="0", wakeLk = null, wakeBusy = false;
+  function wakeSync(){
+    const want = wakeOn && mode==="playing";
+    try{
+      if(!navigator.wakeLock) return;
+      if(want && !wakeLk && !wakeBusy && !document.hidden){
+        wakeBusy = true;
+        navigator.wakeLock.request("screen").then(l=>{
+          wakeBusy = false;
+          if(!wakeOn || mode!=="playing"){ try{ l.release(); }catch(e){} return; }
+          wakeLk = l;
+          l.addEventListener("release", ()=>{ if(wakeLk===l) wakeLk = null; });
+        }).catch(()=>{ wakeBusy = false; });
+      }else if(!want && wakeLk){
+        const l = wakeLk; wakeLk = null;
+        try{ l.release(); }catch(e){}
+      }
+    }catch(e){}
+  }
+  function emitState(){
+    wakeSync();
+    emit("state",{
+      state:mode, playing:mode==="playing", paused:mode==="paused",
+      index:qi, total:queue.length, rate:rate, auto:autoNext, voice:voiceInfo(curVoice())
+    });
+  }
+
+  /* ============ 声 ============
+     getVoices() は最初 空 を返すことがある。voiceschanged は Safari 16 以降しか
+     来ないので、しばらくのあいだ自分でも見に行く。                        */
+  function loadVoices(){
+    if(!SS) return;
+    let list = [];
+    try{ list = SS.getVoices() || []; }catch(e){ list = []; }
+    const sig = list.map(v=>v.voiceURI||v.name).join("|");
+    if(sig === voices._sig) return;
+    voices = list.slice(); voices._sig = sig;
+    emit("voices", {voices: listVoices(), count: voices.length});
+  }
+  /* 声の good / bad。英語の本なので英語を上に、冗談みたいな声は下に */
+  const JOKE = /^(albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|junior|kathy|organ|pipe organ|princess|ralph|superstar|trinoids|whisper|wobble|zarvox)$/i;
+  const GOOD = /(samantha|alex|daniel|karen|moira|serena|aaron|nicky|ava|allison|susan|tom|arthur|martha|fiona|tessa|rishi|evan|joelle|nathan|zoe)/i;
+  function score(v){
+    const lang = (v.lang||"").replace("_","-");
+    let s = 0;
+    if(/^en\b|^en-/i.test(lang)) s += 100; else s -= 100;
+    if(/^en-US/i.test(lang)) s += 8;
+    else if(/^en-GB/i.test(lang)) s += 6;
+    else if(/^en-AU|^en-IE|^en-ZA|^en-IN/i.test(lang)) s += 3;
+    if(v.localService) s += 20;                      // 端末の中の声。オフラインでも鳴る
+    if(v.default) s += 4;
+    if(GOOD.test(v.name||"")) s += 10;
+    if(/(enhanced|premium|neural|siri)/i.test(v.name||"")) s += 6;
+    if(/compact/i.test(v.voiceURI||"")) s -= 1;
+    if(/eloquence/i.test((v.name||"")+(v.voiceURI||""))) s -= 30;
+    if(JOKE.test((v.name||"").trim())) s -= 60;
+    return s;
+  }
+  function sorted(){ return voices.slice().sort((a,b)=>score(b)-score(a)); }
+  /* "en-GB" → "UK" のような、ボタンに載せる短い札 */
+  function tagOf(lang){
+    const m = /-([A-Za-z]{2})\b/.exec((lang||"").replace("_","-"));
+    const c = m ? m[1].toUpperCase() : (lang||"").slice(0,2).toUpperCase();
+    return c==="GB" ? "UK" : c;
+  }
+  function voiceInfo(v){
+    if(!v) return null;
+    return {id:v.voiceURI||v.name||"", uri:v.voiceURI||"", name:v.name||"",
+            lang:v.lang||"", tag:tagOf(v.lang), local:!!v.localService,
+            en:/^en\b|^en-/i.test(v.lang||"")};
+  }
+  function listVoices(){ return sorted().map(voiceInfo); }
+  function curVoice(){
+    if(!voices.length) loadVoices();
+    if(!voices.length) return null;
+    if(wantURI){
+      const v = voices.find(x=>x.voiceURI===wantURI) || voices.find(x=>x.name===wantName);
+      if(v) return v;
+    }
+    return sorted()[0] || null;
+  }
+  function setVoice(uri){
+    const v = uri ? (voices.find(x=>x.voiceURI===uri) || voices.find(x=>x.name===uri) || null) : null;
+    // 見つからなくても覚えておく。声の一覧がまだ出そろっていないだけのことがある
+    wantURI  = v ? (v.voiceURI||"") : (uri || "");
+    wantName = v ? (v.name||"") : "";
+    LS.set("ttsVoice", wantURI); LS.set("ttsVoiceName", wantName);
+    emit("voice", voiceInfo(v));
+    if(mode==="playing") rebuild(true);            // いまの文から言い直す
+    else{ emitState(); if(CFG.sampleOnVoice) sample(); }   // 止まっているなら試し読み
+    return voiceInfo(v);
+  }
+  /* 声を選んだときの試し読み。タップの中から呼ばれる前提なので同期で speak する */
+  const SAMPLE = "This is how the book will sound when I read it to you.";
+  function sample(text){
+    if(!SS || mode==="playing") return false;
+    try{
+      let busy = false;
+      try{ busy = SS.speaking || SS.pending; }catch(e){}
+      const u = new SpeechSynthesisUtterance(text || SAMPLE);
+      const v = curVoice();
+      if(v){ u.voice = v; u.lang = v.lang || "en-US"; } else { u.lang = "en-US"; }
+      u.rate = rate; u.pitch = 1; u.volume = 1;
+      keep.push(u); if(keep.length > 8) keep.shift();
+      if(busy){ SS.cancel(); setTimeout(()=>{ try{ SS.speak(u); }catch(e){} }, 150); }
+      else SS.speak(u);      // ← タップの流れを切らない
+      return true;
+    }catch(e){ return false; }
+  }
+  /* 声を集めはじめる。voiceschanged だけに頼らないのは、Safari 16 より前だと
+     このイベントが来ないため（それでも getVoices() は少し経つと返ってくる） */
+  if(SS){
+    try{ SS.addEventListener("voiceschanged", loadVoices); }
+    catch(e){ try{ SS.onvoiceschanged = loadVoices; }catch(e2){} }
+    loadVoices();
+    tVoice = setInterval(()=>{
+      loadVoices();
+      if(voices.length || ++vTries > 40){ clearInterval(tVoice); tVoice = null; }  // 10 秒であきらめる
+    }, 250);
+  }
+
+  /* ============ 速度 ============ */
+  function setRate(r){
+    const n = clamp(Math.round((+r||1)*20)/20, .5, 2);   // 0.05 刻み
+    if(n===rate){ return rate; }
+    rate = n; LS.set("ttsRate", rate);
+    emit("rate", {rate:rate});
+    if(mode==="playing") rebuild(true);                  // 刻み幅も変わるので作り直す
+    else emitState();
+    return rate;
+  }
+  /* 速度が遅いほど 1 回の発話が長くなる。Chrome の 15 秒打ち切りに当たらないよう縮める */
+  function budget(){ return Math.round(clamp(CFG.maxChars*rate, CFG.minChars, CFG.maxChars)); }
+
+  /* ============ 文に切る ============ */
+  const ABBR = /(^|[\s("'“‘])(mr|mrs|ms|dr|st|jr|sr|prof|rev|hon|sgt|capt|lt|col|gen|vs|etc|inc|ltd|co|no|vol|ch|fig|pp?|approx|dept|univ|mt|ave|blvd)\.$/i;
+  function noBreak(text, i){
+    if(text[i] !== ".") return false;
+    const head = text.slice(Math.max(0,i-12), i+1);
+    if(ABBR.test(head)) return true;
+    if(/(^|[\s("'“‘])[A-Za-z]\.$/.test(head)) return true;   // J. R. R. のような頭文字
+    return false;
+  }
+  function splitSentences(text){
+    const out = [], L = text.length;
+    let start = 0, i = 0;
+    while(i < L){
+      const ch = text[i];
+      if(ch==="." || ch==="!" || ch==="?" || ch==="…"){
+        let j = i + 1;
+        while(j < L && /[.!?…"'”’)\]]/.test(text[j])) j++;   // 続く記号と閉じ引用符まで含める
+        let k = j; while(k < L && /\s/.test(text[k])) k++;
+        const isEnd  = (j >= L);
+        const spaced = (j < L && /\s/.test(text[j]));
+        // うしろが小文字なら、たぶん文の途中（Mr. smith / "Hello." he said）
+        const lower  = (k < L && /[a-z]/.test(text[k]));
+        if((isEnd || spaced) && !lower && !noBreak(text,i)){
+          out.push([start, j]);
+          start = k; i = k; continue;
+        }
+        i = j; continue;
+      }
+      i++;
+    }
+    if(start < L) out.push([start, L]);
+    return out;
+  }
+  /* 長い文をさらに短く切る。読点や接続のところで切ると不自然になりにくい */
+  function cutAt(text, a, limit){
+    const seg = text.slice(a, limit);
+    let m = -1;
+    for(const ch of [", ","; ",": ","— ","– "," — "," ("," )"]){
+      const k = seg.lastIndexOf(ch);
+      if(k > m) m = k + ch.length;
+    }
+    if(m < seg.length * 0.4){
+      const k = seg.lastIndexOf(" ");
+      if(k > 0) m = k + 1;
+    }
+    if(m <= 0) m = seg.length;
+    return a + m;
+  }
+  function pushPiece(out, el, gi, text, s, e){
+    while(s < e && /\s/.test(text[s])) s++;
+    while(e > s && /\s/.test(text[e-1])) e--;
+    const t = text.slice(s, e);
+    if(!t || !/[A-Za-z0-9À-ɏ]/.test(t)) return;   // 記号だけの塊は読まない
+    out.push({el:el, gi:gi, s:s, e:e, text:t});
+  }
+  function addText(out, el, gi, text, max){
+    for(const [ss, se] of splitSentences(text)){
+      let a = ss;
+      while(se - a > max){
+        const c = cutAt(text, a, a + max);
+        if(c <= a) break;
+        pushPiece(out, el, gi, text, a, c);
+        a = c;
+      }
+      pushPiece(out, el, gi, text, a, se);
+    }
+  }
+
+  /* 1 つの要素ぶんを足して、その中での通し番号（si）を振る */
+  function addEl(out, el, gi, max){
+    const from = out.length;
+    addText(out, el, gi, el.textContent, max);
+    for(let k=from;k<out.length;k++) out[k].si = k - from;
+    return out.length - from;
+  }
+
+  /* ============ 読むものを集める ============ */
+  function build(){
+    const page = document.querySelector(CFG.page);
+    const out = [], max = budget();
+    if(page){
+      if(CFG.readHeading){
+        const h = page.querySelector("h2");
+        if(h && h.textContent.trim()) addEl(out, h, null, max);
+      }
+      page.querySelectorAll("p[data-gi]").forEach(p=>{ addEl(out, p, +p.dataset.gi, max); });
+    }
+    queue = out;
+    if(qi >= queue.length) qi = queue.length - 1;
+    if(CFG.wrapClass) wrapAll();
+    return queue.length;
+  }
+  /* ---- 段落を文ごとに <span class="sp" data-si="n"> で包む ----
+     装飾の .mk は内側に残す（.sp が外、.mk が内）。文をまたぐ .mk は切って作り直す。
+     p.textContent は変わらないので、marks の文字位置はずれない                */
+  function readSegs(el){
+    const segs = [];
+    let acc = 0, n;
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    while((n = w.nextNode())){
+      const len = n.nodeValue.length;
+      let mk = null, p = n.parentNode;
+      while(p && p !== el){
+        if(p.nodeType===1 && p.classList && p.classList.contains("mk")){ mk = p; break; }
+        p = p.parentNode;
+      }
+      segs.push({s:acc, e:acc+len, mk:mk});
+      acc += len;
+    }
+    return segs;
+  }
+  function wrapSentences(el){
+    if(!el || !CFG.wrapClass) return false;
+    const text = el.textContent;
+    if(!text) return false;
+    // 文字を選んでいる最中の段落は触らない（選択が消えて装飾ツールバーが閉じてしまう）
+    try{
+      const sel = document.getSelection();
+      if(sel && !sel.isCollapsed){
+        if(sel.containsNode && sel.containsNode(el, true)) return false;
+        if(el.contains(sel.anchorNode) || el.contains(sel.focusNode)) return false;
+      }
+    }catch(e){}
+    const items = [];
+    addEl(items, el, null, budget());
+    if(!items.length) return false;
+    // すでに同じ形なら何もしない（描き直しを減らす）
+    const has = el.querySelectorAll("."+CFG.wrapClass);
+    if(has.length === items.length){
+      let same = true;
+      for(let i=0;i<items.length;i++){ if(has[i].textContent !== items[i].text){ same = false; break; } }
+      if(same) return true;
+    }
+    const segs = readSegs(el);
+    const put = (a,b,parent)=>{
+      for(const g of segs){
+        const s = Math.max(a,g.s), e = Math.min(b,g.e);
+        if(e <= s) continue;
+        const t = document.createTextNode(text.slice(s,e));
+        if(g.mk){ const c = g.mk.cloneNode(false); c.appendChild(t); parent.appendChild(c); }
+        else parent.appendChild(t);
+      }
+    };
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    for(const it of items){
+      if(it.s > pos) put(pos, it.s, frag);          // 文と文のあいだの空白は包まない
+      const sp = document.createElement("span");
+      sp.className = CFG.wrapClass;
+      sp.dataset.si = String(it.si);
+      put(it.s, it.e, sp);
+      frag.appendChild(sp);
+      pos = it.e;
+    }
+    if(pos < text.length) put(pos, text.length, frag);
+    el.textContent = "";
+    el.appendChild(frag);
+    return true;
+  }
+  function wrapAll(){
+    const page = document.querySelector(CFG.page);
+    if(!page) return 0;
+    let n = 0;
+    if(CFG.readHeading){ const h = page.querySelector("h2"); if(h && wrapSentences(h)) n++; }
+    page.querySelectorAll("p[data-gi]").forEach(p=>{ if(wrapSentences(p)) n++; });
+    return n;
+  }
+
+  function findAt(gi, off){
+    if(gi==null) return 0;
+    off = off|0;
+    for(let i=0;i<queue.length;i++){
+      const it = queue[i];
+      if(it.gi===gi && it.e > off) return i;
+      if(it.gi!=null && it.gi > gi) return i;
+    }
+    return 0;
+  }
+  /* いまの位置を保ったまま作り直す（速度や声を変えたとき、装飾で描き直したとき） */
+  function rebuild(keepSpeaking){
+    const it = queue[qi];
+    const gi = it ? it.gi : null, s = it ? it.s : 0;
+    build();
+    qi = it ? findAt(gi, s) : 0;
+    if(keepSpeaking && mode==="playing") restart(qi);
+    else emitState();
+    return queue.length;
+  }
+
+  /* ============ 発話 ============ */
+  function clearTimers(){
+    clearTimeout(tGap); clearTimeout(tChk); clearInterval(tPoll);
+    tGap = tChk = tPoll = null;
+  }
+  function info(i){
+    const it = queue[i];
+    if(!it) return null;
+    return {index:i, total:queue.length, el:it.el, gi:it.gi, si:it.si,
+            start:it.s, end:it.e, text:it.text, heading:it.gi==null,
+            part:partNow(), parts:partCount()};
+  }
+  function speakAt(i){
+    if(!SS) return;
+    if(i < 0 || i >= queue.length){ finishPart(); return; }
+    qi = i;
+    if(i !== retryAt){ retryAt = i; retryN = 0; }   // 言い直しの回数は文ごとに数える
+    const my = ++token;
+    const it = queue[i];
+    const u  = new SpeechSynthesisUtterance(it.text);
+    const v  = curVoice();
+    if(v){ u.voice = v; u.lang = v.lang || "en-US"; } else { u.lang = "en-US"; }
+    u.rate = rate; u.pitch = 1; u.volume = 1;
+    cu = u;
+    keep.push(u); if(keep.length > 8) keep.shift();     // GC 対策
+
+    startedOK = false; spokeAt = aliveAt = Date.now();
+    u.onstart    = ()=>{ if(my!==token) return; startedOK = true; aliveAt = Date.now(); };
+    u.onboundary = ()=>{ if(my===token) aliveAt = Date.now(); };
+    u.onresume   = ()=>{ if(my===token){ startedOK = true; aliveAt = Date.now(); } };
+    u.onend      = ()=>{ if(my!==token) return; done(my); };
+    u.onerror    = ev=>{
+      if(my!==token) return;
+      const code = (ev && ev.error) || "";
+      if(wantPause || code==="canceled" || code==="interrupted") return;  // こちらが止めた分
+      emit("error", {code:code||"speak", message:"読み上げでつまずきました（"+(code||"不明")+"）"});
+      done(my);
+    };
+    // 話し始める直前に知らせる（onstart は来ないことがあるので待たない）
+    emit("sentence", info(i));
+    emitState();
+    try{ SS.speak(u); }
+    catch(e){ emit("error",{code:"speak", message:"読み上げを始められませんでした"}); stop(); return; }
+    watch();
+  }
+  function done(my){
+    if(my!==token || wantPause || mode!=="playing") return;
+    clearTimers();
+    tGap = setTimeout(()=>{ if(mode==="playing" && my===token) speakAt(qi + 1); }, CFG.gapMs);
+  }
+  /* 見張り。onend が来ない・鳴っていない・固まった、を時計で見つける */
+  function watch(){
+    clearInterval(tPoll);
+    const my = token;
+    const est = 1000 * (queue[qi] ? queue[qi].text.length : 60) / (13 * rate) + 2500;
+    tPoll = setInterval(()=>{
+      if(my!==token || mode!=="playing" || wantPause) return;
+      const now = Date.now(), age = now - spokeAt;
+      let speaking = false, pending = false, paused = false;
+      try{ speaking = SS.speaking; pending = SS.pending; paused = SS.paused; }catch(e){}
+
+      // まったく鳴り始めない：タップの外から呼ばれた / 詰まっている
+      // speaking が立っているときは「順番待ちなだけ」のこともあるので長めに待つ
+      if(!startedOK && age > (speaking || pending ? CFG.startMs * 2 : CFG.startMs)){
+        if(retryN < 1){
+          retryN++;
+          clearTimers();
+          try{ SS.cancel(); }catch(e){}
+          setTimeout(()=>{ if(my===token && mode==="playing") speakAt(retryAt); }, 250);
+          return;
+        }
+        clearTimers();
+        mode = "paused"; needRestart = true; emitState();
+        emit("error", {code:"nostart",
+          message:"音が出ませんでした。本体の消音スイッチと音量、それから再生ボタンをもう一度お試しください。"});
+        emit("needgesture", {index:qi});
+        return;
+      }
+      // 終わったのに onend が来ない
+      if(startedOK && !speaking && !pending && !paused && age > 700){ done(my); return; }
+      // 途中で固まった
+      if(speaking && now - aliveAt > est * 2 + 8000){
+        aliveAt = now; clearTimers();
+        try{ SS.cancel(); }catch(e){}
+        setTimeout(()=>{ if(my===token && mode==="playing") speakAt(qi + 1); }, 250);
+      }
+    }, CFG.pollMs);
+    // Chrome は 15 秒ほどで勝手に打ち切るので、時々つついて起こす
+    if(CHROMIUM){
+      clearTimeout(tChk);
+      tChk = setTimeout(function beat(){
+        if(token!==my || mode!=="playing") return;
+        try{ if(SS.speaking && !SS.paused){ SS.pause(); SS.resume(); } }catch(e){}
+        tChk = setTimeout(beat, 9000);
+      }, 9000);
+    }
+  }
+  /* いま鳴っているものを止めてから話し直す。
+     cancel() の直後に speak() すると無視される端末があるので、少し待つ */
+  function restart(i){
+    clearTimers();
+    const my = ++token;
+    let busy = false;
+    try{ busy = SS.speaking || SS.pending; if(busy) SS.cancel(); }catch(e){}
+    if(busy) setTimeout(()=>{ if(mode==="playing" && my===token) speakAt(i); }, Math.max(CFG.gapMs,150));
+    else speakAt(i);
+  }
+
+  /* ============ パートをまたぐ ============ */
+  let host = {nextPart:null, hasNext:null};
+  function partNow(){   try{ return (typeof partIdx!=="undefined") ? partIdx : 0; }catch(e){ return 0; } }
+  function partCount(){ try{ return (typeof parts!=="undefined" && parts && parts.length) || 0; }catch(e){ return 0; } }
+  function hasNext(){
+    if(host.hasNext) { try{ return !!host.hasNext(); }catch(e){ return false; } }
+    return partCount() > 0 && partNow() + 1 < partCount();
+  }
+  function goNext(){
+    lastSelf = Date.now();
+    if(host.nextPart){ try{ return !!host.nextPart(); }catch(e){ return false; } }
+    try{
+      if(typeof move==="function" && hasNext()){ move(1); return true; }
+    }catch(e){}
+    return false;
+  }
+  function finishPart(){
+    clearTimers();
+    const my = ++token;
+    emit("partend", {part:partNow(), parts:partCount(), auto:autoNext && CFG.autoNext, more:hasNext()});
+    if(autoNext && CFG.autoNext && goNext()){
+      emit("part", {part:partNow(), parts:partCount()});
+      setTimeout(()=>{
+        if(mode!=="playing" || my!==token) return;
+        lastSelf = Date.now();
+        if(build()){ emptyRuns = 0; speakAt(0); }
+        else if(++emptyRuns < 4){ finishPart(); }        // 中身のないパートは飛ばす
+        else { mode = "ended"; emitState(); emit("end", {reason:"empty"}); }
+      }, 300);
+      return;
+    }
+    mode = "ended"; qi = -1; emptyRuns = 0;
+    emitState(); emit("sentence", null); emit("end", {reason:"last"});
+  }
+
+  /* ============ 本文が描き直されたら追いかける ============
+     前へ / 次へ / 目次 で drawPart() が走ったときに、読む場所を作り直す */
+  function watchPage(){
+    const page = document.querySelector(CFG.page);
+    if(!page || typeof MutationObserver==="undefined") return;
+    if(mo){ mo.disconnect(); }
+    mo = new MutationObserver(()=>{
+      if(Date.now() - lastSelf < 700) return;            // 自分でめくった分は無視
+      if(mode!=="playing" && mode!=="paused") return;
+      clearTimeout(moT);
+      moT = setTimeout(()=>{
+        const was = mode;
+        clearTimers(); token++;
+        try{ SS && SS.cancel(); }catch(e){}
+        build(); qi = 0;
+        emit("part", {part:partNow(), parts:partCount()});
+        if(was==="playing" && queue.length){ mode = "playing"; setTimeout(()=>speakAt(0), CFG.gapMs); }
+        else { emitState(); }
+      }, 90);
+    });
+    mo.observe(page, {childList:true});
+  }
+
+  /* ============ 外から呼ぶもの ============ */
+  function status(){
+    return {
+      api: !!SS,
+      voices: voices.length,
+      english: voices.filter(v=>/^en\b|^en-/i.test(v.lang||"")).length,
+      ready: !!SS,
+      ios: IOS,
+      reason: !SS ? "この端末では読み上げが使えません"
+            : !voices.length ? "声の一覧がまだ取れていません（端末の声で読み上げます）"
+            : ""
+    };
+  }
+  /* タップの中で呼ぶと、そのあとの読み上げが鳴りやすくなる（iOS の解錠） */
+  let primed = false, warmAt = 0;
+  function warm(){
+    if(!SS || primed) return false;
+    try{
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0; u.rate = 2; keep.push(u);
+      SS.speak(u); primed = true; warmAt = Date.now();
+      loadVoices();
+    }catch(e){}
+    return primed;
+  }
+  /* 必ずタップ・クリックの中から同期で呼ぶこと。中で待たない */
+  function play(opt){
+    opt = opt || {};
+    if(!SS){ emit("error",{code:"noapi", message:"この端末では読み上げが使えません"}); return false; }
+    if(mode==="paused" && opt.index==null && opt.gi==null && opt.el==null){ return resume(); }
+    wantPause = softPause = needRestart = hidPause = false;
+    emptyRuns = 0;
+    watchPage();
+    if(!build()){
+      emit("error",{code:"empty", message:"読むところがありません"});
+      return false;
+    }
+    let i = 0;
+    if(opt.index!=null) i = clamp(opt.index|0, 0, queue.length-1);
+    else if(opt.el){
+      const gi = opt.el.dataset && opt.el.dataset.gi!=null ? +opt.el.dataset.gi : null;
+      i = findAt(gi, opt.offset|0);
+    }
+    else if(opt.gi!=null) i = findAt(+opt.gi, opt.offset|0);
+    else if(opt.keep && qi >= 0) i = qi;
+    mode = "playing"; primed = true;
+    let busy = false;
+    try{ busy = SS.speaking || SS.pending; }catch(e){}
+    // warm() の無音がまだ残っているだけなら、止めずに後ろへ並べる
+    // （タップの流れを切らないため。cancel してしまうと iOS で鳴らないことがある）
+    if(busy && Date.now() - warmAt < 2000) busy = false;
+    if(busy){ restart(i); }          // ほんとうに鳴っているときだけ、いったん止めてから
+    else { clearTimers(); token++; speakAt(i); }   // ← タップと同じ流れで speak() まで行く
+    return true;
+  }
+  function pause(){
+    if(mode!=="playing") return false;
+    wantPause = true; mode = "paused";
+    clearTimers();
+    if(IOS){
+      // iOS の pause() は効かないことが多い。止めて、いまの文の頭から言い直す方式にする
+      softPause = true;
+      try{ SS.cancel(); }catch(e){}
+    }else{
+      try{ SS.pause(); }catch(e){}
+      setTimeout(()=>{
+        if(mode!=="paused" || softPause) return;
+        let sp=false, pd=false;
+        try{ sp = SS.speaking; pd = SS.paused; }catch(e){}
+        if(sp && !pd){ softPause = true; try{ SS.cancel(); }catch(e){} }   // 効いていなかった
+      }, 350);
+    }
+    emitState();
+    return true;
+  }
+  function resume(){
+    if(mode!=="paused") return false;
+    if(!SS) return false;
+    wantPause = false; mode = "playing"; emitState();
+    if(softPause || needRestart){
+      softPause = needRestart = false;
+      restart(qi < 0 ? 0 : qi);
+      return true;
+    }
+    try{ SS.resume(); }catch(e){}
+    spokeAt = aliveAt = Date.now(); startedOK = false;
+    watch();
+    // resume() が効かない端末のために、少しあとで様子を見る
+    setTimeout(()=>{
+      if(mode!=="playing") return;
+      let sp=false, pd=false;
+      try{ sp = SS.speaking; pd = SS.paused; }catch(e){}
+      if(!sp || pd) restart(qi < 0 ? 0 : qi);
+      else startedOK = true;
+    }, 600);
+    return true;
+  }
+  function toggle(){
+    if(mode==="playing") return pause();
+    if(mode==="paused")  return resume();
+    return play();
+  }
+  function stop(){
+    clearTimers(); token++;
+    wantPause = softPause = needRestart = hidPause = false;
+    try{ SS && SS.cancel(); }catch(e){}
+    cu = null; qi = -1; mode = "idle";
+    emit("sentence", null); emitState();
+    return true;
+  }
+  function jump(d){
+    if(!queue.length) return false;
+    // いちばん最後で「次へ」を押したら、次のパートへ送る
+    if(d > 0 && qi >= queue.length - 1){
+      if(mode==="playing"){ finishPart(); return true; }
+      return false;
+    }
+    const i = clamp(qi + d, 0, queue.length - 1);
+    if(mode==="playing"){ restart(i); }
+    else{ qi = i; emit("sentence", info(i)); emitState(); }
+    return true;
+  }
+
+  /* ============ 画面を離れたとき ============ */
+  if(typeof document!=="undefined"){
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.hidden){
+        // iOS は裏に回ると読み上げが壊れて、戻っても鳴らなくなる。先に止めておく
+        if(CFG.pauseOnHide && mode==="playing"){ hidPause = true; pause(); needRestart = true; }
+      }else{
+        if(hidPause && mode==="paused"){
+          hidPause = false;
+          try{ SS && SS.cancel(); }catch(e){}     // 詰まりを流してから
+          setTimeout(()=>{
+            if(mode!=="paused") return;
+            resume();
+            // 戻っても鳴らないときは、UI に「もう一度押して」と伝える
+            setTimeout(()=>{
+              let sp=false; try{ sp = SS.speaking || SS.pending; }catch(e){}
+              if(mode==="playing" && !sp && !startedOK){
+                mode = "paused"; needRestart = true; emitState();
+                emit("needgesture", {index:qi});
+              }
+            }, 1400);
+          }, 250);
+        }
+      }
+    });
+    // 画面を閉じても喋り続けないように
+    window.addEventListener("pagehide", ()=>{ try{ SS && SS.cancel(); }catch(e){} });
+    window.addEventListener("beforeunload", ()=>{ try{ SS && SS.cancel(); }catch(e){} });
+  }
+
+  /* ============ 便利なもの ============ */
+  /* 文の範囲を Range で返す。装飾の <span> をまたいでも大丈夫。
+     ハイライトは CSS.highlights か独自の重ね描きで。選択（Selection）に入れると
+     文字装飾ツールバーが開いてしまうので使わないこと                       */
+  function nodeAt(el, off){
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let acc = 0, n, last = null;
+    while((n = w.nextNode())){
+      const len = n.nodeValue.length;
+      if(off <= acc + len) return {node:n, off:off - acc};
+      acc += len; last = n;
+    }
+    return last ? {node:last, off:last.nodeValue.length} : {node:el, off:0};
+  }
+  function rangeOf(el, s, e){
+    if(!el) return null;
+    try{
+      const a = nodeAt(el, s), b = nodeAt(el, e);
+      const r = document.createRange();
+      r.setStart(a.node, a.off); r.setEnd(b.node, b.off);
+      return r;
+    }catch(err){ return null; }
+  }
+  function currentRange(){
+    const it = queue[qi];
+    return it ? rangeOf(it.el, it.s, it.e) : null;
+  }
+  /* いま画面に見えている、いちばん上の段落 */
+  function topPara(){
+    const page = document.querySelector(CFG.page);
+    if(!page || !page.querySelectorAll) return null;
+    const list = page.querySelectorAll("p[data-gi]");
+    for(const p of list){
+      let r = null;
+      try{ r = p.getBoundingClientRect(); }catch(e){}
+      if(!r) return p;
+      if(r.bottom > 80) return p;       // ヘッダーの下に少しでも出ているもの
+    }
+    return list.length ? list[list.length-1] : null;
+  }
+
+  return {
+    /* 使えるか */
+    supported: ()=>!!SS,
+    status,
+    /* 声 */
+    voices: listVoices,
+    voice: ()=>voiceInfo(curVoice()),
+    setVoice,
+    reloadVoices: loadVoices,
+    /* 速度 */
+    rate: ()=>rate,
+    setRate,
+    /* 再生 */
+    warm, play, pause, resume, toggle, stop,
+    next: ()=>jump(1), prev: ()=>jump(-1), repeat: ()=>jump(0),
+    /* 状態 */
+    state: ()=>mode,
+    playing: ()=>mode==="playing",
+    current: ()=>info(qi),
+    currentRange, rangeOf,
+    /* パートの自動送り */
+    auto: ()=>autoNext,
+    setAuto: v=>{ autoNext = !!v; LS.set("ttsAuto", autoNext?"1":"0"); emitState(); return autoNext; },
+    /* 設定と差し込み */
+    config: o=>{ Object.assign(CFG, o||{}); return Object.assign({}, CFG); },
+    hooks:  o=>{ Object.assign(host, o||{}); },
+    rescan: ()=>{ watchPage(); return rebuild(mode==="playing"); },
+    /* 通知 */
+    on, off,
+
+    /* ============ UI 担当者の想定に合わせた別名 ============
+       中身は上のものと同じ。どちらの名前で呼んでも動きます               */
+    start:   ()=>play({el: topPara()}),        // 画面に見えているところから
+    back:    ()=>jump(-1),
+    forward: ()=>jump(1),
+    jumpTo:  (gi, si)=>{
+      for(let i=0;i<queue.length;i++){
+        const it = queue[i];
+        if(it.gi===(gi==null?null:+gi) && it.si===(si|0)){
+          if(mode==="playing") restart(i);
+          else return play({index:i});
+          return true;
+        }
+      }
+      return false;
+    },
+    setGap:  sec=>{ CFG.gapMs = clamp(Math.round((+sec||0)*1000), 0, 5000); return CFG.gapMs/1000; },
+    gap:     ()=>CFG.gapMs/1000,
+    sample,
+    setWake: v=>{ wakeOn = !!v; LS.set("ttsWake", wakeOn?"1":"0"); wakeSync(); return wakeOn; },
+    wake:    ()=>wakeOn,
+    wrapSentences,                              // repaint() のあとに呼ぶ
+    wrapAll,
+    /* 受け取り口の別名。UI が欲しい形に整えて渡す */
+    onState:    fn=>on("state", d=>fn(d)),
+    onSentence: fn=>on("sentence", d=>fn(d)),
+    onRate:     fn=>on("rate", d=>fn(d.rate)),
+    onVoice:    fn=>on("voice", v=>fn(v && v.id)),
+    onPartEnd:  fn=>on("partend", d=>fn(d)),
+    onError:    fn=>on("error", d=>fn(d.message || d.code)),
+    onVoices:   fn=>on("voices", d=>fn(d.voices))
+  };
+})();
+
 /* ============ バックアップ ============ */
 function download(name,text,type){
   const blob=new Blob([text],{type:type||"application/json"});
@@ -1209,7 +2215,7 @@ function download(name,text,type){
 /* ============ イベント ============ */
 $("#btnAdd").onclick=()=>openEditor(null);
 $("#editBack").onclick=()=>{show("shelf");applyReaderStyle();};
-$("#rBack").onclick=()=>{hideStyleBar();show("shelf");renderChips();renderList();applyReaderStyle();SYNC.later();};
+$("#rBack").onclick=()=>{SPEAK.stop();hideStyleBar();show("shelf");renderChips();renderList();applyReaderStyle();SYNC.later();};
 $("#btnSave").onclick=saveBook;
 $("#btnDelete").onclick=async()=>{
   if(!editingId) return;
@@ -1312,6 +2318,13 @@ $("#jsonIn").onchange=e=>{
 
 document.addEventListener("keydown",e=>{
   if(!$("#reader").classList.contains("on")) return;
+  if(e.shiftKey){                                   // Shift＋← → は読み上げの前後の文
+    if(document.body.dataset.speak!=="1") return;
+    if(e.key==="ArrowLeft"){ e.preventDefault(); TTS.prev(); }
+    if(e.key==="ArrowRight"){ e.preventDefault(); TTS.next(); }
+    return;
+  }
+  if(e.code==="Space" && document.body.dataset.speak==="1"){ e.preventDefault(); TTS.toggle(); return; }
   if(e.key==="ArrowRight") move(1);
   if(e.key==="ArrowLeft") move(-1);
 });
@@ -1325,6 +2338,135 @@ if("serviceWorker" in navigator){
     navigator.serviceWorker.register("sw.js").catch(()=>{});
   });
 }
+
+/* ============ 読み上げの操作 ============
+   エンジン（TTS）と画面をつなぐところ。音の面倒はエンジンが見るので、
+   ここはハイライトとボタンの見た目だけを受け持つ。         */
+const SPEAK = (()=>{
+  const fmt = r=>{ const s=r.toFixed(2); return s.endsWith("0")?s.slice(0,-1):s; };
+  let lastSp=null, lastP=null, back=null;      // back＝やめたときの場所
+  let focusOn = localStorage.getItem("ttsFocus")!=="0";
+
+  function clearMark(){
+    if(lastSp) lastSp.removeAttribute("data-on");
+    if(lastP)  lastP.removeAttribute("data-now");
+    lastSp=lastP=null;
+  }
+  function open(on){
+    document.body.dataset.speak = on?"1":"0";
+    $("#speakBar").classList.toggle("on",on);
+    if(!on){ clearMark(); $("#speakBar").dataset.play="0"; }
+  }
+  // 読んでいる文が画面から外れそうなときだけ動かす（自分でめくった直後に邪魔しない）
+  function follow(el){
+    const sc=$("#rScroll"); if(!sc||!el) return;
+    const r=el.getBoundingClientRect(), c=sc.getBoundingClientRect();
+    if(r.top > c.top + c.height*0.12 && r.bottom < c.bottom - 150) return;
+    sc.scrollTo({top:Math.max(0, sc.scrollTop + (r.top-c.top) - c.height/3), behavior:"smooth"});
+  }
+  function paintRate(r){
+    const s=fmt(r);
+    const box=$("#spkRate"); box.textContent=s;
+    const em=document.createElement("em"); em.textContent="倍"; box.appendChild(em);
+    $("#spkRateNow").textContent=s;
+    $$("#spkRates button").forEach(b=>b.dataset.on = Math.abs(+b.dataset.rate-r)<0.001?"1":"0");
+  }
+  function paintVoices(){
+    const box=$("#spkVoices"); if(!box) return;
+    const vs=TTS.voices()||[], now=TTS.voice();
+    box.innerHTML="";
+    $("#spkVoiceHint").hidden = vs.some(v=>v.en);
+    for(const v of vs){
+      const b=document.createElement("button");
+      const n=document.createElement("span"); n.className="n"; n.textContent=v.tag||v.lang||"";
+      b.appendChild(n); b.appendChild(document.createTextNode(v.name));
+      if(now && now.id===v.id) b.dataset.on="1";
+      b.onclick=()=>{ TTS.setVoice(v.id); paintVoices(); };
+      box.appendChild(b);
+    }
+  }
+  // 「なし / 少し / しっかり」のような選択式のまとまりを共通で扱う
+  function group(sel,key,get,set){
+    const mark=()=>$$(sel+" button").forEach(b=>b.dataset.on = String(get())===b.dataset[key]?"1":"0");
+    $$(sel+" button").forEach(b=>b.onclick=()=>{ set(b.dataset[key]); mark(); });
+    mark(); return mark;
+  }
+
+  document.addEventListener("tts:sentence", e=>{
+    clearMark();
+    const d=e.detail; if(!d || !d.el) return;
+    const sp=d.el.querySelector('.sp[data-si="'+d.si+'"]');
+    if(sp){ sp.dataset.on="1"; lastSp=sp; }
+    d.el.dataset.now="1"; lastP=d.el;
+    follow(sp||d.el);
+  });
+  document.addEventListener("tts:state", e=>{
+    const d=e.detail||{};
+    $("#speakBar").dataset.play = d.playing?"1":"0";
+    if(d.state==="idle") open(false);
+    $("#spkPos").textContent = (d.total>0 && d.index>=0) ? (d.index+1)+" / "+d.total : "";
+  });
+  document.addEventListener("tts:part", e=>{
+    const d=e.detail||{};
+    $("#spkBar").style.width = (((d.part+1)/Math.max(1,d.parts))*100)+"%";
+  });
+  document.addEventListener("tts:rate", e=>paintRate(e.detail.rate));
+  document.addEventListener("tts:voices", paintVoices);
+  document.addEventListener("tts:error", e=>toast((e.detail&&e.detail.message)||"読み上げできませんでした"));
+  document.addEventListener("tts:needgesture", ()=>toast("もう一度、再生を押してください"));
+  document.addEventListener("tts:end", ()=>{ $("#speakBar").dataset.play="0"; toast("最後まで読みました"); });
+
+  /* ボタン。iOS はタップの中で同期に呼ばないと鳴らないので、待たせない */
+  $("#btnSpeak").onclick=()=>{
+    const st=TTS.status();
+    if(!st.api){ toast(st.reason||"この端末では読み上げが使えません"); return; }
+    TTS.warm();
+    open(true);
+    if(back && $('#page p[data-gi="'+back.gi+'"]')) TTS.jumpTo(back.gi, back.si);
+    else TTS.play();
+  };
+  $("#spkPlay").onclick=()=>TTS.toggle();
+  $("#spkStop").onclick=()=>{
+    const c=TTS.current(); back = c ? {gi:c.gi, si:c.si} : null;   // 続きから聞けるように控える
+    TTS.stop(); open(false);
+  };
+  $("#spkBack").onclick=()=>TTS.prev();
+  $("#spkFwd").onclick =()=>TTS.next();
+  $("#spkSlow").onclick=()=>TTS.setRate(TTS.rate()-0.1);
+  $("#spkFast").onclick=()=>TTS.setRate(TTS.rate()+0.1);
+  $("#spkVoice").onclick=()=>{ paintVoices(); openSheet("sheetSpeak"); };
+  $$("#spkRates button").forEach(b=>b.onclick=()=>TTS.setRate(+b.dataset.rate));
+
+  // 本文の文をタップすると、そこから読み直す
+  $("#page").addEventListener("click", e=>{
+    if(document.body.dataset.speak!=="1") return;
+    const sel=document.getSelection();
+    if(sel && !sel.isCollapsed) return;              // 文字を選んでいるときは触らない
+    const sp=e.target.closest && e.target.closest(".sp");
+    if(!sp) return;
+    const p=sp.closest("p[data-gi]"); if(!p) return;
+    TTS.jumpTo(+p.dataset.gi, +sp.dataset.si);
+  });
+
+  function start(){
+    const st=TTS.status();
+    if(!st.api){ $("#btnSpeak").hidden=true; return; }   // 使えない端末では入口を出さない
+    TTS.config({wrapClass:"sp"});
+    TTS.setGap(+(localStorage.getItem("ttsGap")||0.4));
+    document.body.dataset.focus = focusOn?"1":"0";
+    paintRate(TTS.rate());
+    paintVoices();
+    group("#spkGap","gap",  ()=>TTS.gap(),  v=>{TTS.setGap(+v);localStorage.setItem("ttsGap",v);});
+    group("#spkAuto","auto",()=>TTS.auto()?"1":"0", v=>TTS.setAuto(v==="1"));
+    group("#spkWake","wake",()=>TTS.wake()?"1":"0", v=>TTS.setWake(v==="1"));
+    group("#spkFocus","focus",()=>focusOn?"1":"0", v=>{
+      focusOn=(v==="1"); localStorage.setItem("ttsFocus",v);
+      document.body.dataset.focus=v;
+    });
+  }
+  function stop(){ if(TTS.supported()) TTS.stop(); back=null; open(false); }
+  return {start, stop};
+})();
 
 /* ============ 起動 ============ */
 (async function init(){
@@ -1340,6 +2482,7 @@ if("serviceWorker" in navigator){
   renderChips();
   renderList();
   $("#appVer").textContent = "版：" + APP_VER;
+  SPEAK.start();
   SYNC.paint("");                // 同期の状態を点で表す
   if(SYNC.on()){ SYNC.run(); SYNC.start(); }   // 起動時に取り込み、以降は定期的に見に行く
 })();
