@@ -337,6 +337,8 @@ button{background:none;border:0;cursor:pointer}
 /* 読み上げ中だけ、下の場所を .foot から読み上げバーに明け渡す */
 body[data-speak="1"] .foot{display:none}
 body[data-speak="1"] .page{padding-bottom:calc(206px + var(--safe-b))}
+/* 装飾バーが出ているあいだは、最後の行もバーの上まで送れるようにする */
+body[data-mark="1"] .page{padding-bottom:calc(300px + var(--safe-b))}
 body[data-speak="1"] .toast{bottom:calc(160px + var(--safe-b))}
 
 /* ---------- いま読んでいる文 ---------- */
@@ -635,7 +637,7 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-01 太字を強く";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-01 下の行も装飾できる";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
@@ -1249,8 +1251,29 @@ function applyStyle(patch){
 }
 
 /* --- ツールバー --- */
-function showStyleBar(){ $("#styleBar").classList.add("on"); updateBarState(); }
-function hideStyleBar(){ $("#styleBar").classList.remove("on"); selTargets=[]; }
+function showStyleBar(){
+  document.body.dataset.mark="1";          // バーの高さぶん、下に送れる余白を足す
+  $("#styleBar").classList.add("on");
+  updateBarState();
+  requestAnimationFrame(keepSelVisible);
+}
+function hideStyleBar(){
+  $("#styleBar").classList.remove("on");
+  delete document.body.dataset.mark;
+  selTargets=[];
+}
+/* 画面の一番下の行を選ぶと、出てきたバーがその行を隠してしまう。
+   選んだ所がバーの上に来るまで本文を送る */
+function keepSelVisible(){
+  const sel=document.getSelection();
+  if(!sel || !sel.rangeCount || sel.isCollapsed) return;
+  const r=sel.getRangeAt(0), rects=r.getClientRects();
+  const last = rects.length ? rects[rects.length-1] : r.getBoundingClientRect();
+  if(!last || !last.height) return;
+  const bar=$("#styleBar").getBoundingClientRect();
+  const over = last.bottom - (bar.top - 14);
+  if(over>0) $("#rScroll").scrollBy({top:over, behavior:"smooth"});
+}
 function updateBarState(){
   $("#sbBold").dataset.on = selHasAll(r=>r.bold)?"1":"0";
   $("#sbRed").dataset.on  = selHasAll(r=>r.fg==="red")?"1":"0";
