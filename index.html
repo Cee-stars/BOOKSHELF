@@ -215,7 +215,12 @@ button{background:none;border:0;cursor:pointer}
   --fg-red:#8E1515;--fg-blue:#0B3C78;color:#16171C;padding:.06em 0;
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);     /* 紙と同系色でも範囲が分かるように */
 }
-.mk[data-b="1"]{font-weight:800}
+.mk[data-b="1"]{
+  font-weight:800;
+  /* 明朝系は Regular と Bold しか持たないので、font-weight を上げても太くならない。
+     輪郭をわずかに太らせて、もう一段はっきりさせる */
+  -webkit-text-stroke:.5px currentColor;
+}
 .mk[data-fg="red"]{color:var(--fg-red,#E5484D)}
 .mk[data-fg="blue"]{color:var(--fg-blue,#3B82F6)}
 
@@ -630,7 +635,7 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-01 物語2冊目";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-01 太字を強く";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
