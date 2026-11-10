@@ -104,10 +104,43 @@ button{background:none;border:0;cursor:pointer}
 
 .card{
   display:flex;align-items:stretch;gap:0;margin-bottom:12px;
-  background:var(--ink-2);border-radius:16px;overflow:hidden;
+  background:#171922;border-radius:16px;overflow:hidden;
   border:1px solid var(--line);position:relative;
 }
 .card:active{transform:scale(.99)}
+
+/* ---------- カードの地 ----------
+   写真あり・なしで「重さ」を揃える。写真なしはジャンル色の地で一枚の装丁として
+   完結させ、写真ありはその上に暗幕を敷く。文字の色・位置・進捗バーは両者で同一。
+   守るのは写真ではなく文字側なので、暗幕の濃さは写真の明暗に関係なく固定する。 */
+.card::before{
+  content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:
+    linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 55%),
+    linear-gradient(105deg,
+      color-mix(in srgb, var(--c) 4%, transparent) 0%,
+      color-mix(in srgb, var(--c) 16%, transparent) 60%,
+      color-mix(in srgb, var(--c) 30%, transparent) 100%);
+}
+.card[data-photo="1"]::before{
+  background:
+    linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 55%),
+    linear-gradient(to right, rgba(0,0,0,.88) 0%, rgba(0,0,0,.80) 40%,
+                              rgba(0,0,0,.45) 76%, rgba(0,0,0,.30) 100%),
+    color-mix(in srgb, var(--c) 10%, transparent);
+}
+.card>.ph{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;
+  filter:saturate(55%) contrast(92%) brightness(60%) blur(1px);
+  transform:scale(1.04);
+}
+.card>.spine,.card>.body,.card>.more{position:relative;z-index:2}
+/* 栞。お気に入りの印。上端から覗かせ、全カードで同じ座標に置く */
+.card[data-fav="1"]::after{
+  content:"";position:absolute;top:0;right:14px;width:6px;height:20px;z-index:3;
+  background:#D9C38A;pointer-events:none;
+  clip-path:polygon(0 0,100% 0,100% 100%,50% calc(100% - 4px),0 100%);
+}
 .spine{
   flex:0 0 36px;background:var(--c);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
@@ -121,8 +154,10 @@ button{background:none;border:0;cursor:pointer}
   font-family:var(--display);font-size:17px;font-weight:800;line-height:1.3;
   overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
 }
-.card .a{margin-top:3px;font-size:13px;color:var(--dim)}
-.card .m{margin-top:9px;font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.04em}
+.card .a{margin-top:3px;font-size:13px;color:rgba(255,255,255,.80)}
+.card .m{margin-top:9px;font-family:var(--mono);font-size:11px;color:rgba(255,255,255,.80);letter-spacing:.04em}
+.card .t{color:#fff}
+.card .track{background:rgba(0,0,0,.35)}
 .track{margin-top:9px;height:5px;border-radius:99px;background:rgba(255,255,255,.09);overflow:hidden}
 .track i{display:block;height:100%;background:var(--c);border-radius:99px}
 .more{
@@ -412,6 +447,36 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 .toclist button[data-on="1"]{background:var(--ink-3);font-weight:800}
 .toclist .n{font-family:var(--mono);font-size:11px;color:var(--dim);margin-right:8px}
 
+/* ---------- 表紙の位置を決めるシート ---------- */
+.cvhead{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.cvhead h3{margin:0;flex:1}
+/* 「写真を外す」は下の縦並びから外す。親指は下から上に動くので決定を狙って誤爆する */
+.cvhead button{
+  flex:0 0 auto;padding:7px 13px;border-radius:999px;background:var(--ink-3);
+  font-size:12px;font-weight:800;color:var(--dim);
+}
+/* プレビューは実寸のカードそのまま。拡大すると可動量の体感がずれて「読めるか」の判断が狂う */
+.cvprev{transition:transform .12s ease-out}
+.cvprev.lift{transform:translateY(-72px)}   /* ドラッグ中だけ指の上に逃がす */
+.cvprev .card{
+  margin-bottom:0;
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+}
+.cvprev .card:active{transform:none}        /* 押され状態の縮小が入ると rect と可動量が狂う */
+.cvprev .card .body,.cvprev .card .more{pointer-events:none}
+/* 画像の上から指やカーソルでなぞると、ブラウザが「画像をドラッグして持ち出す」
+   動作を始めてしまい、pointercancel が飛んで位置合わせが途中で打ち切られる。
+   画像を掴めなくして、札（カード）自体で受ける。 */
+.cvprev .card .ph{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;
+  pointer-events:none;-webkit-user-drag:none;user-drag:none;
+}
+.cvprev .card .spine,.cvprev .card .body,.cvprev .card .more{position:relative;z-index:1}
+/* 持ち上げた札が重なるあいだ、取り消せない操作を踏めないようにする */
+#sheetCover.drag #cvRemove{pointer-events:none}
+.cvhint{min-height:19px;margin-top:11px;font-size:12.5px;color:var(--dim);font-weight:700}
+#cvOk{background:#fff;color:#12131A}
+
 .toast{
   position:fixed;left:50%;bottom:calc(94px + var(--safe-b));transform:translateX(-50%);
   background:#fff;color:#12131A;padding:11px 18px;border-radius:999px;font-weight:800;font-size:14px;
@@ -603,7 +668,23 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
   <h3 id="moreTitle"></h3>
   <button class="ghost" id="mEdit">編集する</button>
   <button class="ghost" id="mReset">読んだ位置をリセット</button>
+  <button class="ghost" id="mFav">お気に入りに入れる</button>
+  <button class="ghost" id="mPhoto">写真を追加</button>
   <button class="ghost" data-close="1">閉じる</button>
+</div></div>
+
+<!-- 表紙の位置を決めるシート。外側タップでは閉じない（data-noclose）。
+     作業中の写真が指の滑りで消えるほうが、閉じられないより怖いため -->
+<div class="sheet" id="sheetCover" data-noclose="1"><div class="inner">
+  <div class="cvhead">
+    <h3>表紙の位置</h3>
+    <button id="cvRemove">写真を外す</button>
+  </div>
+  <div class="cvprev" id="cvPrev"></div>
+  <div class="cvhint" id="cvHint"></div>
+  <div class="hint">写真はこの端末の中だけに保存されます。</div>
+  <button class="ghost" id="cvCancel">やめる</button>
+  <button class="ghost" id="cvOk">決定</button>
 </div></div>
 
 <div class="sheet" id="sheetData"><div class="inner">
@@ -637,7 +718,7 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-08 物語4冊目";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-10 表紙の写真";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
@@ -660,30 +741,215 @@ const PALETTE = ["#FF7A18","#FF3E8A","#7B4BFF","#00C2FF","#00B87C","#A8E10C","#F
 
 /* ============ 保存 (IndexedDB) ============ */
 const DB = (()=>{
+  const NAME="bookshelf", VER=2;
   let p=null;
   function open(){
     if(p) return p;
     p = new Promise((res,rej)=>{
-      const r = indexedDB.open("bookshelf",1);
-      r.onupgradeneeded = ()=>{ r.result.createObjectStore("books",{keyPath:"id"}); };
-      r.onsuccess = ()=>res(r.result);
-      r.onerror = ()=>rej(r.error);
+      const r = indexedDB.open(NAME,VER);
+      r.onupgradeneeded = ()=>{
+        const db = r.result;
+        // 既存ストアには一切触らない。「無いものだけ作る」。
+        // delete→create や無条件 createObjectStore は ConstraintError で
+        // 昇格全体が中断し、既存ユーザーが棚を開けなくなる。
+        if(!db.objectStoreNames.contains("books"))
+          db.createObjectStore("books",{keyPath:"id"});
+        if(!db.objectStoreNames.contains("covers"))
+          db.createObjectStore("covers",{keyPath:"id"});
+      };
+      // 他のタブが古い版で接続を握っていると、昇格が無言で止まる
+      r.onblocked = ()=>{ try{ toast("別のタブを閉じてください"); }catch(e){} };
+      r.onsuccess = ()=>{
+        const db = r.result;
+        // 他のタブが更に新しい版を開いたら道を譲る
+        db.onversionchange = ()=>{ try{ db.close(); }catch(e){} p=null; };
+        db.onclose = ()=>{ p=null; };
+        res(db);
+      };
+      r.onerror = ()=>{ p=null; rej(r.error); };
     });
     return p;
   }
-  const tx = (mode,fn)=>open().then(db=>new Promise((res,rej)=>{
-    const t = db.transaction("books",mode);
-    const s = t.objectStore("books");
-    const req = fn(s);
+  // ストア名を引数に取る（既存の all/put/del は books のまま動く）
+  const tx = (store,mode,fn)=>open().then(db=>new Promise((res,rej)=>{
+    const t = db.transaction(store,mode);
+    const s = t.objectStore(store);
+    let req;
+    try{ req = fn(s); }
+    catch(e){ try{ t.abort(); }catch(_){} return rej(e); }
     t.oncomplete = ()=>res(req && req.result);
-    t.onerror = ()=>rej(t.error);
+    t.onerror    = ()=>rej(t.error);
+    t.onabort    = ()=>rej(t.error || new Error("保存を中断しました"));
   }));
   return {
-    all: ()=>tx("readonly",s=>s.getAll()),
-    put: b=>tx("readwrite",s=>s.put(b)),
-    del: id=>tx("readwrite",s=>s.delete(id)),
+    // --- 本 ---
+    all: ()=>tx("books","readonly",s=>s.getAll()),
+    put: b=>tx("books","readwrite",s=>s.put(b)),
+    del: id=>tx("books","readwrite",s=>s.delete(id)),
+    // --- 表紙写真（同期しない。本のデータには一切入れない） ---
+    cover:     id=>tx("covers","readonly",s=>s.get(id)),
+    allCovers: ()=>tx("covers","readonly",s=>s.getAll()),
+    coverPut:  c =>tx("covers","readwrite",s=>s.put(c)),
+    coverDel:  id=>tx("covers","readwrite",s=>s.delete(id)),
   };
 })();
+
+/* ============ 表紙の写真 ============
+   写真はこの端末だけに保存する（covers ストア）。本のデータには一切入れない。
+   入れると同期のたびに画像が Gist へ飛んでしまう。
+   COVERS は「表示用の控え」。blob から作った URL はここで1本だけ持ち、
+   カードを描き直すときは文字列を貼り直すだけにする。 */
+const COVERS = new Map();      // id -> {url, px, py, w, h}
+const COVER_LONG = 1200;       // 長辺の上限
+const COVER_Q    = 0.8;        // JPEG の品質
+
+// 控えから外して URL を解放する（解放はここだけを通す）
+function dropCoverURL(id){
+  const c = COVERS.get(id);
+  if(c && c.url){ try{ URL.revokeObjectURL(c.url); }catch(e){} }
+  COVERS.delete(id);
+}
+
+// 寸法を先に測る。48MP級やHEICを等倍で canvas に載せると
+// iOS ではエラーも出ずに真っ白になるので、必ずここで寸法を知ってから縮める
+function probePhoto(file){
+  return new Promise((res,rej)=>{
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload  = ()=>res({w:im.naturalWidth, h:im.naturalHeight, img:im, url});
+    im.onerror = ()=>{ try{ URL.revokeObjectURL(url); }catch(e){} rej(new Error("画像を読めませんでした")); };
+    im.src = url;
+  });
+}
+
+// 半分ずつ小さくしながら目標寸法まで落とす。元寸大の canvas は一度も作らない
+function stepDownPhoto(src, tw, th){
+  let cur=src, cw=src.naturalWidth||src.width, ch=src.naturalHeight||src.height;
+  while(cw > tw*2 && ch > th*2){
+    const nw = Math.max(tw, Math.round(cw/2)), nh = Math.max(th, Math.round(ch/2));
+    const c = document.createElement("canvas");
+    c.width=nw; c.height=nh;
+    c.getContext("2d").drawImage(cur,0,0,nw,nh);
+    if(cur!==src && cur.getContext){ cur.width=cur.height=1; }   // 使い終わった分は早めに返す
+    cur=c; cw=nw; ch=nh;
+  }
+  return cur;
+}
+
+// 長辺 1200px の JPEG にする
+async function shrinkPhoto(file){
+  const p = await probePhoto(file);
+  try{
+    const sw=p.w, sh=p.h;
+    if(!sw || !sh) throw new Error("寸法が取れませんでした");
+    const scale = Math.min(1, COVER_LONG/Math.max(sw,sh));
+    const tw = Math.max(1,Math.round(sw*scale)), th = Math.max(1,Math.round(sh*scale));
+    let src=null, bmp=null;
+    try{
+      // 縮小とEXIF回転を createImageBitmap に任せる
+      const opt = {imageOrientation:"from-image", resizeQuality:"high"};
+      if(sw>=sh) opt.resizeWidth=tw; else opt.resizeHeight=th;
+      bmp = await createImageBitmap(file,opt);
+      // 寸法指定を無視する環境もあるので、効いたかどうかを見てから使う
+      src = (Math.max(bmp.width,bmp.height) <= COVER_LONG*1.02)
+          ? bmp : stepDownPhoto(bmp,tw,th);
+    }catch(e){
+      src = stepDownPhoto(p.img,tw,th);     // <img> から段階的に落とす
+    }
+    const cv = document.createElement("canvas");
+    cv.width=tw; cv.height=th;
+    cv.getContext("2d").drawImage(src,0,0,tw,th);
+    if(bmp && bmp.close){ try{ bmp.close(); }catch(e){} }
+    if(src!==bmp && src.getContext){ src.width=src.height=1; }
+    const blob = await new Promise(r=>cv.toBlob(r,"image/jpeg",COVER_Q));
+    cv.width=cv.height=1;
+    if(!blob) throw new Error("画像を変換できませんでした");
+    return {blob, w:tw, h:th};
+  }finally{
+    try{ URL.revokeObjectURL(p.url); }catch(e){}
+  }
+}
+
+// 写真を表紙にする。成功したら true
+async function setCoverPhoto(id, file){
+  if(!id || !file) return false;
+  let out;
+  try{ out = await shrinkPhoto(file); }
+  catch(e){ toast("この写真は使えませんでした"); return false; }
+  const rec = {id, blob:out.blob, type:"image/jpeg", px:50, py:50,
+               w:out.w, h:out.h, updated:Date.now()};
+  const url = URL.createObjectURL(out.blob);
+  try{
+    await DB.coverPut(rec);
+  }catch(e){
+    // 容量超過はここで例外になる。控えには入れず、作った URL も捨てる
+    try{ URL.revokeObjectURL(url); }catch(_){}
+    toast(e && e.name==="QuotaExceededError" ? "保存できませんでした（空き容量）" : "保存できませんでした");
+    return false;
+  }
+  dropCoverURL(id);                                      // 差し替え：古い URL を始末してから
+  COVERS.set(id,{url, px:50, py:50, w:out.w, h:out.h});
+  renderList();
+  return true;
+}
+
+// ドラッグで決めた位置（0〜100の％）を保存する。指を離したときに呼ぶ
+async function saveCoverPos(id, px, py){
+  const c = COVERS.get(id);
+  if(!c) return false;
+  const nx = Math.min(100, Math.max(0, Math.round(+px||0)));
+  const ny = Math.min(100, Math.max(0, Math.round(+py||0)));
+  c.px=nx; c.py=ny;
+  try{
+    const rec = await DB.cover(id);
+    if(!rec) return false;
+    rec.px=nx; rec.py=ny; rec.updated=Date.now();
+    await DB.coverPut(rec);
+  }catch(e){ toast("保存できませんでした"); return false; }
+  renderList();
+  return true;
+}
+
+// 「写真を外す」
+async function removeCoverPhoto(id){
+  try{ await DB.coverDel(id); }
+  catch(e){ toast("外せませんでした"); return false; }
+  dropCoverURL(id);
+  renderList();
+  return true;
+}
+
+// 端末の写真を選ばせる。capture は付けない（付けるとカメラに直行してしまう）
+let coverInput = null;
+function pickCoverPhoto(id, done){
+  if(!id) return;
+  if(!coverInput){
+    coverInput = document.createElement("input");
+    coverInput.type="file"; coverInput.accept="image/*"; coverInput.hidden=true;
+    document.body.appendChild(coverInput);
+  }
+  coverInput.onchange = async ()=>{
+    const f = coverInput.files && coverInput.files[0];
+    coverInput.value = "";                   // 同じ写真をもう一度選べるようにする
+    if(!f) return;
+    const ok = await setCoverPhoto(id,f);
+    if(ok && typeof done==="function") done(id);
+  };
+  coverInput.click();
+}
+
+/* ============ お気に入り ============ */
+// fav は真偽値として扱う（持っていない本は undefined のまま）
+async function toggleFav(id){
+  const b = books.find(x=>x.id===id);
+  if(!b) return false;
+  b.fav = b.fav ? 0 : 1;
+  touch(b);                                  // 同期で新しい方を採れるように時刻を押す
+  try{ await DB.put(b); }catch(e){ toast("保存できませんでした"); }
+  renderChips(); renderList();
+  SYNC.later();
+  return !!b.fav;
+}
 
 /* ============ 状態 ============ */
 let books = [];
@@ -813,6 +1079,9 @@ function splitParts(text){
 /* ============ 棚を描く ============ */
 function renderChips(){
   const used = new Set(books.map(b=>b.genre));
+  const hasFav = books.some(b=>b.fav);
+  // 最後の1冊を外したとき、空の棚で固まらないように戻す
+  if(filter==="fav" && !hasFav) filter="all";
   const el=$("#chips"); el.innerHTML="";
   const mk=(id,name,c)=>{
     const b=document.createElement("button");
@@ -822,13 +1091,15 @@ function renderChips(){
     el.appendChild(b);
   };
   mk("all","すべて","#FF7A18");
+  if(hasFav) mk("fav","お気に入り","#D9C38A");   // 色はカードの栞と揃える
   GENRES.filter(g=>used.has(g.id)).forEach(g=>mk(g.id,g.name,g.c));
 }
 
 function renderList(){
   const el=$("#list"); el.innerHTML="";
   let arr=books.slice().sort((a,b)=>(b.lastRead||b.created)-(a.lastRead||a.created));
-  if(filter!=="all") arr=arr.filter(b=>b.genre===filter);
+  if(filter==="fav") arr=arr.filter(b=>b.fav);          // fav は真偽値として見る
+  else if(filter!=="all") arr=arr.filter(b=>b.genre===filter);
   if(query){
     const q=query.toLowerCase();
     arr=arr.filter(b=>(b.title+" "+(b.author||"")).toLowerCase().includes(q));
@@ -872,6 +1143,19 @@ function renderList(){
     const wc=b.words||0;
     card.querySelector(".m").textContent =
       wc.toLocaleString()+" words · 約"+Math.max(1,Math.round(wc/150))+"分 · "+pct+"%";
+    // 表紙の写真。見た目は .card[data-photo] と .card .ph のCSS側で付ける
+    const cv=COVERS.get(b.id);
+    if(cv && cv.url){
+      card.dataset.photo="1";
+      card.style.setProperty("--px",cv.px+"%");
+      card.style.setProperty("--py",cv.py+"%");
+      const im=document.createElement("img");
+      im.className="ph"; im.alt=""; im.decoding="async";
+      im.style.objectPosition = cv.px+"% "+cv.py+"%";
+      im.src=cv.url;                       // URL は作り直さない。控えの文字列を貼るだけ
+      card.insertBefore(im,card.firstChild);
+    }
+    if(b.fav) card.dataset.fav="1";
     card.querySelector(".body").onclick=()=>openBook(b.id);
     card.querySelector(".more").onclick=e=>{e.stopPropagation();openMore(b.id);};
     el.appendChild(card);
@@ -1313,10 +1597,13 @@ document.addEventListener("selectionchange",()=>{
 });
 
 /* ============ シート ============ */
+// プレビューをドラッグ中は、指を離した場所が幕の上でも閉じないようにする。
+// setPointerCapture を使っても click は幕へ飛ぶので、このフラグが必要
+let dragging = false;
 function openSheet(id){ hideStyleBar(); $("#"+id).classList.add("on"); }
 function closeSheets(){ $$(".sheet").forEach(s=>s.classList.remove("on")); }
 $$(".sheet").forEach(s=>{
-  s.addEventListener("click",e=>{ if(e.target===s) closeSheets(); });
+  s.addEventListener("click",e=>{ if(e.target===s && !s.dataset.noclose && !dragging) closeSheets(); });
 });
 $$("[data-close]").forEach(b=>b.onclick=closeSheets);
 
@@ -1324,6 +1611,9 @@ function openMore(id){
   moreId=id;
   const b=books.find(x=>x.id===id);
   $("#moreTitle").textContent=b.title;
+  // 段は増やさず、いまの状態に合う言い方へ差し替える
+  $("#mFav").textContent   = b.fav ? "お気に入りから外す" : "お気に入りに入れる";
+  $("#mPhoto").textContent = COVERS.has(id) ? "写真を変える" : "写真を追加";
   openSheet("sheetMore");
 }
 
@@ -1400,6 +1690,8 @@ const SYNC = (()=>{
         const rec = JSON.parse(txt);
         rec.id=id; if(!rec.updated) rec.updated=nextIdx[id].updated;
         await DB.put(rec); got++;
+        // 他の端末で消された本は、この端末に残っている写真も始末する
+        if(rec.deleted){ DB.coverDel(id).catch(()=>{}); dropCoverURL(id); }
       }
       // 送り出し（index は毎回まとめて更新する）
       const changed = Object.keys(pushFiles).length;
@@ -2306,6 +2598,8 @@ $("#btnDelete").onclick=async()=>{
   if(!confirm("この本を削除します。元に戻せません。")) return;
   // 消した印だけ残す。これが無いと、同期のたびに他の端末から本が戻ってきてしまう
   await DB.put({id:editingId, deleted:1, updated:Date.now()});
+  DB.coverDel(editingId).catch(()=>{});     // 写真は同期しないので、ここで捨てる
+  dropCoverURL(editingId);
   books=books.filter(b=>b.id!==editingId);
   renderChips(); renderList(); show("shelf"); toast("削除しました");
   SYNC.later();
@@ -2352,6 +2646,195 @@ $("#mReset").onclick=async()=>{
   b.part=0;b.progress=0;await DB.put(touch(b));
   closeSheets();renderList();toast("最初に戻しました");SYNC.later();
 };
+$("#mFav").onclick=async()=>{
+  const id=moreId;
+  closeSheets();                                   // 一拍待たせない。結果は札の見た目で分かる
+  const on=await toggleFav(id);
+  toast(on?"お気に入りに入れました":"お気に入りから外しました");
+};
+$("#mPhoto").onclick=()=>{
+  const id=moreId;
+  // 差し替えのときは元の写真を控えておく（「やめる」で戻すため）。
+  // ここで await すると利用者の操作から離れてしまい、iOS では写真選択が開かなくなる。
+  // 読み出しは待たずに走らせ、調整シートを開くときに合流させる
+  const origP = COVERS.has(id)
+    ? DB.cover(id).then(r=>(r&&r.blob)?{blob:r.blob,px:r.px,py:r.py}:null).catch(()=>null)
+    : Promise.resolve(null);
+  pickCoverPhoto(id, nid=>{ origP.then(o=>COVERFIT.open(nid,o)); });
+};
+
+/* ============ 表紙の位置を決める ============
+   写真を選んだ直後に一度だけ開く。初期値は中央なので、触らず「決定」で終われる。
+   ドラッグは気になった人だけがする任意の作業。                           */
+const COVERFIT = (()=>{
+  const clamp = v=>Math.min(100,Math.max(0,v));
+  let id=null, orig=null, px=50, py=50;
+  let pid=null, sx=0, sy=0, bx=50, by=50, overX=0, overY=0, hinted=false, moved=false;
+
+  const host   = ()=>$("#cvPrev");
+  const cardEl = ()=>$("#cvPrev > .card");
+
+  // 本棚の札と同じ組み立てで1枚作る。題名・語数・進捗バーを乗せたまま動かして、
+  // 「写真を敷いても読めるか」を本人に確かめてもらう
+  function build(b){
+    const g=G[b.genre]||G.other;
+    const c=b.color||g.c;
+    const pct=Math.round((b.progress||0)*100);
+    const cv=COVERS.get(b.id)||{};
+    const card=document.createElement("div");
+    card.className="card";
+    card.style.setProperty("--c",c);
+    card.style.setProperty("--sc",readableOn("#111318",c));
+    card.innerHTML=
+      '<div class="spine"></div>'+
+      '<div class="body"><div class="t"></div><div class="a"></div>'+
+      '<div class="m"></div><div class="track"><i style="width:'+pct+'%"></i></div></div>'+
+      '<div class="more">⋯</div>';
+    const sp=card.querySelector(".spine");
+    for(const ch of g.name){
+      const s=document.createElement("span");
+      s.textContent=ch;
+      if(/[ー－—–-]/.test(ch)) s.className="rot";
+      sp.appendChild(s);
+    }
+    card.querySelector(".t").textContent=b.title;
+    const a=card.querySelector(".a");
+    a.textContent=b.author||""; if(!b.author) a.style.display="none";
+    const wc=b.words||0;
+    card.querySelector(".m").textContent=
+      wc.toLocaleString()+" words · 約"+Math.max(1,Math.round(wc/150))+"分 · "+pct+"%";
+    if(b.fav) card.dataset.fav="1";
+    if(cv.url){
+      card.dataset.photo="1";
+      const im=document.createElement("img");
+      im.className="ph"; im.alt=""; im.decoding="async";
+      im.src=cv.url;                     // URL は作り直さない。控えの文字列を貼るだけ
+      card.insertBefore(im,card.firstChild);
+    }
+    paint(card);
+    return card;
+  }
+
+  function paint(card){
+    card = card || cardEl(); if(!card) return;
+    card.style.setProperty("--px",px+"%");
+    card.style.setProperty("--py",py+"%");
+    const im=card.querySelector(".ph");
+    if(im) im.style.objectPosition = px+"% "+py+"%";
+  }
+
+  // どの軸がどれだけはみ出すか。札の幅は端末と向きで変わるので、
+  // つまむたびに測り直す（回転してもそのまま続けられる）
+  function measure(){
+    overX=overY=0;
+    const card=cardEl(), c=COVERS.get(id);
+    if(!card || !c || !c.w || !c.h) return;
+    const box=card.getBoundingClientRect();
+    if(!box.width || !box.height) return;              // 閉じているあいだは 0 になる
+    const s=Math.max(box.width/c.w, box.height/c.h);   // cover の倍率
+    overX=c.w*s-box.width;
+    overY=c.h*s-box.height;
+  }
+
+  // 開いた瞬間から出ていると警告に見えるので、動かそうとしたときに一度だけ出す
+  function hint(){
+    if(hinted) return;
+    hinted=true;
+    const mx=overX>1, my=overY>1;
+    $("#cvHint").textContent =
+      (!mx && !my) ? "この写真はぴったり収まっています" :
+      (my && !mx)  ? "上下に動かせます" :
+      (mx && !my)  ? "左右に動かせます" : "";
+  }
+
+  function onDown(e){
+    if(!e.isPrimary || pid!==null) return;            // 2本目の指は無視する
+    const card=cardEl(); if(!card) return;
+    measure();                                        // 持ち上げる前に測る
+    hint();
+    pid=e.pointerId; dragging=true; moved=false;
+    sx=e.clientX; sy=e.clientY; bx=px; by=py;
+    try{ card.setPointerCapture(pid); }catch(_){}
+    // 札は高さ100px ほどで、下から来た指にほぼ隠れる。ドラッグ中だけ指の上へ逃がす
+    host().classList.add("lift");
+    $("#sheetCover").classList.add("drag");
+  }
+
+  function onMove(e){
+    if(pid===null || e.pointerId!==pid) return;
+    e.preventDefault();
+    // はみ出していない軸は触らない。clamp だけで、ふちから先へは出ない
+    if(overX>1) px=clamp(bx-(e.clientX-sx)/overX*100);
+    if(overY>1) py=clamp(by-(e.clientY-sy)/overY*100);
+    moved=true;
+    paint();
+  }
+
+  // 通知バナーや縁からのスワイプで pointercancel が飛ぶ。
+  // 取りこぼすとフラグが立ち残ってボタンが効かなくなるので、up と同じ出口を通す
+  function onUp(e){
+    if(pid===null || (e && e.pointerId!=null && e.pointerId!==pid)) return;
+    const card=cardEl();
+    if(card){ try{ card.releasePointerCapture(pid); }catch(_){} }
+    pid=null;
+    host().classList.remove("lift");
+    $("#sheetCover").classList.remove("drag");
+    setTimeout(()=>{ dragging=false; },300);
+    // 指を離したときだけ書く。ただの軽いタップでは棚を描き直さない
+    if(moved){ moved=false; saveCoverPos(id,px,py); }
+  }
+
+  function open(bid, prevOrig){
+    const b=books.find(x=>x.id===bid); if(!b) return;
+    id=bid; orig=prevOrig||null; hinted=false; pid=null; overX=overY=0;
+    const c=COVERS.get(id)||{};
+    px=(c.px==null?50:c.px); py=(c.py==null?50:c.py);
+    const h=host();
+    h.classList.remove("lift"); h.innerHTML="";
+    $("#sheetCover").classList.remove("drag");
+    $("#cvHint").textContent="";
+    const card=build(b);
+    card.addEventListener("pointerdown",onDown);
+    card.addEventListener("pointermove",onMove);
+    card.addEventListener("pointerup",onUp);
+    card.addEventListener("pointercancel",onUp);
+    h.appendChild(card);
+    // ⋯ の段はここまで開いたまま。写真選択をやめた人がメニューに戻れるようにしている
+    closeSheets();
+    openSheet("sheetCover");
+    // display:none のあいだは rect が 0 になる。描かれた次のフレームで測る
+    requestAnimationFrame(()=>requestAnimationFrame(measure));
+  }
+
+  // 「やめる」の戻り先は、写真を足した直後と差し替えで違う
+  async function cancel(){
+    const bid=id, o=orig;
+    closeSheets();
+    if(!o){ await removeCoverPhoto(bid); toast("写真をやめました"); return; }
+    if(await setCoverPhoto(bid,o.blob)){              // 元の写真と位置に戻す
+      await saveCoverPos(bid,o.px,o.py);
+      toast("前の写真に戻しました");
+    }
+  }
+
+  async function remove(){
+    const bid=id;
+    closeSheets();
+    if(await removeCoverPhoto(bid)) toast("写真を外しました");
+  }
+
+  function ok(){
+    const bid=id, x=px, y=py;
+    closeSheets();
+    saveCoverPos(bid,x,y);                            // 離したときに書いているが、念のため
+    toast("表紙にしました");
+  }
+
+  return {open, cancel, remove, ok};
+})();
+$("#cvRemove").onclick=()=>COVERFIT.remove();
+$("#cvCancel").onclick=()=>COVERFIT.cancel();
+$("#cvOk").onclick    =()=>COVERFIT.ok();
 $("#btnData").onclick=()=>{openSheet("sheetData");SYNC.paint(SYNC.on()?"":"まだ設定されていません");};
 $("#syncStart").onclick=async()=>{
   const tok=$("#syncTok").value.trim(), gid=$("#syncGid").value.trim();
@@ -2638,6 +3121,24 @@ async function addSamples(all){
     books=[]; toast("保存領域を開けませんでした");
   }
   books.forEach(b=>{ if(b.words==null) b.words=words(b.text); if(!b.updated) b.updated=b.lastRead||b.created||1; });
+  // 表紙の写真を読む。ここは必ず別の try で囲む。
+  // 上の try に入れると、写真の読み込みに失敗したときに本まで捨ててしまう
+  try{
+    const covs = (await DB.allCovers()) || [];
+    for(const c of covs){
+      if(!c || !c.blob) continue;
+      if(!books.some(b=>b.id===c.id)){
+        // 閉じている間に他の端末で消された本の写真。誰も参照しないので掃除する
+        DB.coverDel(c.id).catch(()=>{});
+        continue;
+      }
+      COVERS.set(c.id,{ url: URL.createObjectURL(c.blob),
+                        px: isFinite(c.px)?c.px:50, py: isFinite(c.py)?c.py:50,
+                        w: c.w||0, h: c.h||0 });
+    }
+  }catch(e){
+    [...COVERS.keys()].forEach(dropCoverURL);   // 途中で転んでも URL を残さない
+  }
   renderThemes();
   applyReaderStyle();
   renderChips();
