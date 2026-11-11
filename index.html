@@ -124,21 +124,22 @@ button{background:none;border:0;cursor:pointer}
 }
 .card[data-photo="1"]::before{
   background:
-    linear-gradient(to top, rgba(0,0,0,.52) 0%, rgba(0,0,0,0) 58%),
-    linear-gradient(to right, rgba(0,0,0,.70) 0%, rgba(0,0,0,.58) 38%,
-                              rgba(0,0,0,.34) 72%, rgba(0,0,0,.20) 100%),
-    color-mix(in srgb, var(--c) 8%, transparent);
+    linear-gradient(to top, rgba(0,0,0,.46) 0%, rgba(0,0,0,0) 60%),
+    linear-gradient(to right, rgba(0,0,0,.66) 0%, rgba(0,0,0,.54) 38%,
+                              rgba(0,0,0,.28) 72%, rgba(0,0,0,.15) 100%),
+    color-mix(in srgb, var(--c) 6%, transparent);
 }
 .card>.ph{
   position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;
-  filter:saturate(85%) contrast(96%) brightness(92%);
+  filter:saturate(95%) contrast(98%) brightness(100%);
   transform:scale(1.02);
 }
 /* 暗幕を薄くした分、明るい写真でも文字が白飛びしないように影で縁を作る。
-   写真のある札だけに掛ける（無地の札では輪郭がにじむため）。 */
-.card[data-photo="1"] .t{text-shadow:0 1px 4px rgba(0,0,0,.72)}
+   写真のある札だけに掛ける（無地の札では輪郭がにじむため）。
+   暗幕をこれ以上薄くするなら、先にこの影を濃くすること。 */
+.card[data-photo="1"] .t{text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 10px rgba(0,0,0,.45)}
 .card[data-photo="1"] .a,
-.card[data-photo="1"] .m{text-shadow:0 1px 3px rgba(0,0,0,.82)}
+.card[data-photo="1"] .m{text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.5)}
 .card>.spine,.card>.body,.card>.more{position:relative;z-index:2}
 /* 栞。お気に入りの印。上端から覗かせ、全カードで同じ座標に置く */
 .card[data-fav="1"]::after{
@@ -723,7 +724,7 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-11 写真を明るく";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-11 写真をさらに明るく";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
