@@ -124,16 +124,21 @@ button{background:none;border:0;cursor:pointer}
 }
 .card[data-photo="1"]::before{
   background:
-    linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 55%),
-    linear-gradient(to right, rgba(0,0,0,.88) 0%, rgba(0,0,0,.80) 40%,
-                              rgba(0,0,0,.45) 76%, rgba(0,0,0,.30) 100%),
-    color-mix(in srgb, var(--c) 10%, transparent);
+    linear-gradient(to top, rgba(0,0,0,.52) 0%, rgba(0,0,0,0) 58%),
+    linear-gradient(to right, rgba(0,0,0,.70) 0%, rgba(0,0,0,.58) 38%,
+                              rgba(0,0,0,.34) 72%, rgba(0,0,0,.20) 100%),
+    color-mix(in srgb, var(--c) 8%, transparent);
 }
 .card>.ph{
   position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;
-  filter:saturate(55%) contrast(92%) brightness(60%) blur(1px);
-  transform:scale(1.04);
+  filter:saturate(85%) contrast(96%) brightness(92%);
+  transform:scale(1.02);
 }
+/* 暗幕を薄くした分、明るい写真でも文字が白飛びしないように影で縁を作る。
+   写真のある札だけに掛ける（無地の札では輪郭がにじむため）。 */
+.card[data-photo="1"] .t{text-shadow:0 1px 4px rgba(0,0,0,.72)}
+.card[data-photo="1"] .a,
+.card[data-photo="1"] .m{text-shadow:0 1px 3px rgba(0,0,0,.82)}
 .card>.spine,.card>.body,.card>.more{position:relative;z-index:2}
 /* 栞。お気に入りの印。上端から覗かせ、全カードで同じ座標に置く */
 .card[data-fav="1"]::after{
@@ -718,7 +723,7 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-10 表紙の写真";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-11 写真を明るく";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
