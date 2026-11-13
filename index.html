@@ -154,7 +154,12 @@ button{background:none;border:0;cursor:pointer}
   padding:10px 2px;overflow:hidden;
 }
 .spine span{display:block}
-.spine span.rot{transform:rotate(90deg)}
+/* 背表紙の文字は横倒し。英字を1文字ずつ縦に積むと、Adventure のような
+   長い語が札の高さに収まらない */
+.spine .lbl{
+  writing-mode:vertical-rl;text-orientation:sideways;
+  white-space:nowrap;letter-spacing:.04em;font-size:10px;
+}
 .card .body{flex:1;min-width:0;padding:14px 14px 12px;text-align:left}
 .card .t{
   font-family:var(--display);font-size:17px;font-weight:800;line-height:1.3;
@@ -505,12 +510,12 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
   </header>
   <div class="scroll">
     <div class="tools">
-      <input class="search" id="q" type="search" placeholder="タイトル・著者で検索">
+      <input class="search" id="q" type="search" placeholder="Search by title or author">
     </div>
     <div class="chips" id="chips"></div>
     <div class="list" id="list"></div>
   </div>
-  <button class="fab" id="btnAdd">＋ 本を追加</button>
+  <button class="fab" id="btnAdd">＋ Add book</button>
 </section>
 
 <!-- ============ 追加・編集 ============ -->
@@ -562,10 +567,10 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
     <div class="page" id="page"></div>
   </div>
   <div class="foot">
-    <button class="nav" id="prev">‹ 前</button>
-    <button class="nav play" id="btnSpeak" aria-label="読み上げを始める"><i class="ic sm"></i>聞く</button>
+    <button class="nav" id="prev">‹ Prev</button>
+    <button class="nav play" id="btnSpeak" aria-label="読み上げを始める"><i class="ic sm"></i>Listen</button>
     <span class="pos" id="pos"></span>
-    <button class="nav" id="next">次 ›</button>
+    <button class="nav" id="next">Next ›</button>
   </div>
   <div class="rprog"><i id="rbar"></i></div>
 
@@ -724,23 +729,23 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-11 写真をさらに明るく";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-13 棚と読書画面を英語に";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
-  {id:"fantasy",  name:"ファンタジー", c:"#00B87C", kw:["wizard","magic","dragon","elf","sword","spell","kingdom","witch","quest","prophecy","sorcer","enchant","goblin","mage","realm","castle"]},
+  {id:"fantasy",  name:"Fantasy", c:"#00B87C", kw:["wizard","magic","dragon","elf","sword","spell","kingdom","witch","quest","prophecy","sorcer","enchant","goblin","mage","realm","castle"]},
   {id:"sf",       name:"SF",          c:"#00C2FF", kw:["space","robot","alien","galaxy","planet","spaceship","android","cyber","laser","starship","quantum","colony","mars","orbit","artificial intelligence"]},
-  {id:"mystery",  name:"ミステリー",   c:"#7B4BFF", kw:["murder","detective","clue","suspect","inspector","crime","victim","alibi","investigat","police","mystery","witness","sergeant","evidence"]},
-  {id:"romance",  name:"ロマンス",     c:"#FF3E8A", kw:["love","kiss","romance","marry","wedding","boyfriend","girlfriend","darling","passion","dating","affair","heart"]},
-  {id:"horror",   name:"ホラー",       c:"#E63946", kw:["ghost","terror","haunted","scream","monster","nightmare","demon","curse","evil","vampire","zombie","blood"]},
-  {id:"adventure",name:"冒険",         c:"#F2B705", kw:["island","treasure","journey","voyage","jungle","captain","sail","adventure","expedition","escape","mountain","desert"]},
-  {id:"history",  name:"歴史",         c:"#C98A3B", kw:["king","queen","empire","century","battle","army","revolution","ancient","dynasty","soldier","treaty","medieval"]},
-  {id:"business", name:"ビジネス",     c:"#FF7A18", kw:["business","market","company","customer","profit","strategy","manage","invest","startup","brand","sales","leadership","revenue"]},
-  {id:"self",     name:"自己啓発",     c:"#FF9F1C", kw:["habit","mindset","success","motivation","goal","productiv","focus","discipline","confidence","routine","willpower"]},
-  {id:"science",  name:"科学",         c:"#1FC9C3", kw:["cell","energy","theory","experiment","research","brain","evolution","atom","species","physics","chemical","climate","neuron"]},
-  {id:"kids",     name:"児童書",       c:"#A8E10C", kw:["bunny","teddy","puppy","kitten","mummy","daddy","playground","fairy","once upon a time","little bear","toy"]},
-  {id:"essay",    name:"エッセイ",     c:"#FF6B6B", kw:["i remember","my father","my mother","memoir","childhood","diary","essay","when i was"]},
-  {id:"other",    name:"その他",       c:"#8892A6", kw:[]}
+  {id:"mystery",  name:"Mystery",   c:"#7B4BFF", kw:["murder","detective","clue","suspect","inspector","crime","victim","alibi","investigat","police","mystery","witness","sergeant","evidence"]},
+  {id:"romance",  name:"Romance",     c:"#FF3E8A", kw:["love","kiss","romance","marry","wedding","boyfriend","girlfriend","darling","passion","dating","affair","heart"]},
+  {id:"horror",   name:"Horror",       c:"#E63946", kw:["ghost","terror","haunted","scream","monster","nightmare","demon","curse","evil","vampire","zombie","blood"]},
+  {id:"adventure",name:"Adventure",         c:"#F2B705", kw:["island","treasure","journey","voyage","jungle","captain","sail","adventure","expedition","escape","mountain","desert"]},
+  {id:"history",  name:"History",         c:"#C98A3B", kw:["king","queen","empire","century","battle","army","revolution","ancient","dynasty","soldier","treaty","medieval"]},
+  {id:"business", name:"Business",     c:"#FF7A18", kw:["business","market","company","customer","profit","strategy","manage","invest","startup","brand","sales","leadership","revenue"]},
+  {id:"self",     name:"Self-Help",     c:"#FF9F1C", kw:["habit","mindset","success","motivation","goal","productiv","focus","discipline","confidence","routine","willpower"]},
+  {id:"science",  name:"Science",         c:"#1FC9C3", kw:["cell","energy","theory","experiment","research","brain","evolution","atom","species","physics","chemical","climate","neuron"]},
+  {id:"kids",     name:"Kids",       c:"#A8E10C", kw:["bunny","teddy","puppy","kitten","mummy","daddy","playground","fairy","once upon a time","little bear","toy"]},
+  {id:"essay",    name:"Essay",     c:"#FF6B6B", kw:["i remember","my father","my mother","memoir","childhood","diary","essay","when i was"]},
+  {id:"other",    name:"Other",       c:"#8892A6", kw:[]}
 ];
 const G = Object.fromEntries(GENRES.map(g=>[g.id,g]));
 const PALETTE = ["#FF7A18","#FF3E8A","#7B4BFF","#00C2FF","#00B87C","#A8E10C","#F2B705","#E63946","#1FC9C3","#FF9F1C","#C98A3B","#8892A6"];
@@ -1096,7 +1101,7 @@ function renderChips(){
     b.onclick=()=>{filter=id;renderChips();renderList();};
     el.appendChild(b);
   };
-  mk("all","すべて","#FF7A18");
+  mk("all","All","#FF7A18");
   if(hasFav) mk("fav","お気に入り","#D9C38A");   // 色はカードの栞と揃える
   GENRES.filter(g=>used.has(g.id)).forEach(g=>mk(g.id,g.name,g.c));
 }
@@ -1114,12 +1119,12 @@ function renderList(){
 
   if(!arr.length){
     if(books.length){
-      el.innerHTML='<div class="empty"><b>見つかりませんでした</b>検索とジャンルを変えてみてください。</div>';
+      el.innerHTML='<div class="empty"><b>No books found</b>Try a different search or genre.</div>';
     }else{
       // 棚が空のときは、以前の本を引き継ぐ入口もここに出す
-      el.innerHTML='<div class="empty"><b>棚はまだ空です</b>'+
-        '右下の「＋ 本を追加」から本文を貼り付けます。'+
-        '<button class="ghost" id="emptyImport">前に使っていた本を読み込む</button></div>';
+      el.innerHTML='<div class="empty"><b>Your shelf is empty</b>'+
+        'Tap &#8220;＋ Add book&#8221; at the bottom right and paste a text.'+
+        '<button class="ghost" id="emptyImport">Load books you used before</button></div>';
       $("#emptyImport").onclick=()=>openSheet("sheetData");
     }
     return;
@@ -1137,18 +1142,15 @@ function renderList(){
       '<div class="m"></div><div class="track"><i style="width:'+pct+'%"></i></div></button>'+
       '<button class="more" aria-label="メニュー">⋯</button>';
     const sp=card.querySelector(".spine");
-    for(const ch of g.name){
-      const s=document.createElement("span");
-      s.textContent=ch;
-      if(/[ー－—–-]/.test(ch)) s.className="rot";
-      sp.appendChild(s);
-    }
+    const lb=document.createElement("span");
+    lb.className="lbl"; lb.textContent=g.name;
+    sp.appendChild(lb);
     card.querySelector(".t").textContent=b.title;
     card.querySelector(".a").textContent=b.author||"";
     if(!b.author) card.querySelector(".a").style.display="none";
     const wc=b.words||0;
     card.querySelector(".m").textContent =
-      wc.toLocaleString()+" words · 約"+Math.max(1,Math.round(wc/150))+"分 · "+pct+"%";
+      wc.toLocaleString()+" words · "+Math.max(1,Math.round(wc/150))+" min · "+pct+"%";
     // 表紙の写真。見た目は .card[data-photo] と .card .ph のCSS側で付ける
     const cv=COVERS.get(b.id);
     if(cv && cv.url){
@@ -2697,18 +2699,15 @@ const COVERFIT = (()=>{
       '<div class="m"></div><div class="track"><i style="width:'+pct+'%"></i></div></div>'+
       '<div class="more">⋯</div>';
     const sp=card.querySelector(".spine");
-    for(const ch of g.name){
-      const s=document.createElement("span");
-      s.textContent=ch;
-      if(/[ー－—–-]/.test(ch)) s.className="rot";
-      sp.appendChild(s);
-    }
+    const lb=document.createElement("span");
+    lb.className="lbl"; lb.textContent=g.name;
+    sp.appendChild(lb);
     card.querySelector(".t").textContent=b.title;
     const a=card.querySelector(".a");
     a.textContent=b.author||""; if(!b.author) a.style.display="none";
     const wc=b.words||0;
     card.querySelector(".m").textContent=
-      wc.toLocaleString()+" words · 約"+Math.max(1,Math.round(wc/150))+"分 · "+pct+"%";
+      wc.toLocaleString()+" words · "+Math.max(1,Math.round(wc/150))+" min · "+pct+"%";
     if(b.fav) card.dataset.fav="1";
     if(cv.url){
       card.dataset.photo="1";
