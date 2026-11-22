@@ -652,7 +652,23 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
   </div>
 
   <div class="sblock">
-    <span class="k">声<em>押すと、その声で少し読みます</em></span>
+    <span class="k">AI の音声<em id="aiState"></em></span>
+    <div class="stepper" id="spkAi">
+      <button data-ai="1">AI の声</button><button data-ai="0">端末の声</button></div>
+    <div id="aiSetup" style="margin-top:8px">
+      <input class="search" id="aiUrl" type="url" placeholder="置き場の URL（https://〇〇.workers.dev）"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input class="search" id="aiRoom" type="password" placeholder="合言葉"
+             autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+      <button class="ghost" id="aiSave" style="margin-top:8px">保存して試す</button>
+    </div>
+    <div class="hint" id="aiHint">瞬間英作文アプリと同じ置き場・同じ合言葉を入れてください。
+      一度聞いた文は端末にしまうので、二度目からはすぐ鳴り、電波がなくても鳴ります。</div>
+    <button class="ghost" id="aiClear">しまってある音を消す</button>
+  </div>
+
+  <div class="sblock" id="spkVoiceBlock">
+    <span class="k">端末の声<em>押すと、その声で少し読みます</em></span>
     <!-- 中身はエンジン側が作る。1行の形は下のとおり
          <button data-voice="…" data-on="1"><span class="n">US</span>Samantha</button> -->
     <div class="toclist" id="spkVoices"></div>
@@ -729,7 +745,7 @@ body[data-speak="1"][data-focus="1"] .page:has(p[data-now="1"]) p[data-now="1"]{
 
 <script>
 "use strict";
-const APP_VER = "2026-11-22 7冊目を収録";   // どの版が動いているか確かめるための表示
+const APP_VER = "2026-11-22 AI の音声を足した";   // どの版が動いているか確かめるための表示
 
 /* ============ ジャンル定義 ============ */
 const GENRES = [
@@ -1765,6 +1781,130 @@ const SYNC = (()=>{
   return {on,run,later,connect,disconnect,paint,start,code:()=>get("syncGist")};
 })();
 
+/* ============ AI の音声（Cloudflare Workers AI の置き場） ============
+   瞬間英作文アプリ（sunkan-333）と同じ置き場を使う。置き場の役目は
+   「文を渡すと音（mp3）を作って返す」だけで、音は預からない。
+   作った音は端末の IndexedDB にしまうので、同じ文は二度作らせない。
+   二度目からはすぐ鳴り、オフラインでも鳴り、無料枠も減らない。
+   URL と合言葉はこの中だけに置き、ほかのモジュールへは渡さない。     */
+const AIV = (()=>{
+  const LS = {
+    get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } },
+    set(k,v){ try{ localStorage.setItem(k,String(v)); }catch(e){} }
+  };
+  const MAX = 400;                       // 置き場が一度に受け取れる長さ
+  const DB_NAME = "bookshelf-audio", STORE = "clips";
+  const can = !!(window.indexedDB && window.Blob && window.fetch && window.Audio);
+  let dbP = null, lastErr = "";
+
+  function open(){
+    if(!can) return Promise.reject(new Error("この端末では音をしまえません"));
+    if(dbP) return dbP;
+    dbP = new Promise((res,rej)=>{
+      let q; try{ q = indexedDB.open(DB_NAME,1); }catch(e){ rej(e); return; }
+      q.onupgradeneeded = ()=>{ const db=q.result;
+        if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE,{keyPath:"key"}); };
+      q.onsuccess = ()=>res(q.result);
+      q.onerror   = ()=>rej(q.error||new Error("音の置き場を開けませんでした"));
+    });
+    return dbP;
+  }
+  function tx(mode, run){
+    return open().then(db=>new Promise((res,rej)=>{
+      let t,s,out;
+      try{ t=db.transaction(STORE,mode); s=t.objectStore(STORE); }catch(e){ rej(e); return; }
+      out = run(s);
+      t.oncomplete = ()=>res(out && out.result!==undefined ? out.result : out);
+      t.onerror    = ()=>rej(t.error||new Error("音の出し入れに失敗しました"));
+      t.onabort    = ()=>rej(t.error||new Error("音の出し入れが止まりました"));
+    }));
+  }
+  /* 鍵は読ませた文そのものから作る。文が変われば鍵も変わるので、
+     直す前の音が残っていて古い文が鳴る、ということがない */
+  const tidy = t => String(t||"").replace(/\s+/g," ").trim();
+  function keyOf(s){
+    let h1=0x811c9dc5, h2=0x01000193;
+    for(let i=0;i<s.length;i++){
+      const c=s.charCodeAt(i);
+      h1=((h1^c)*0x01000193)>>>0;
+      h2=(h2+c*(i+131))>>>0;
+    }
+    return s.length+"-"+h1.toString(36)+"-"+h2.toString(36);
+  }
+
+  const url  = ()=> LS.get("aiUrl","").trim();
+  const room = ()=> LS.get("aiRoom","").trim();
+  let onFlag = LS.get("aiOn","0")==="1";
+  /* 置き場が入っているか。合言葉の形は Worker 側の CODE_OK と同じにする。
+     手元で確かめるとき用に 127.0.0.1 と localhost も通す（Worker の許可リストと同じ） */
+  const ROOM_OK = /^[a-z0-9-]{16,64}$/;
+  function urlOk(u){ return /^https:\/\/\S+$/.test(u) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(u); }
+  function ready(){ return can && urlOk(url()) && ROOM_OK.test(room()); }
+  function active(){ return onFlag && ready(); }
+
+  const flight = {};   // 鍵 → Promise。同じ文を同時に二度取りにいかない
+  /** 音を返す。作れなければ null（呼ぶ側は端末の声に戻すだけ。例外は投げない） */
+  function clip(text){
+    const say = tidy(text).slice(0,MAX);
+    if(!say || !can) return Promise.resolve(null);
+    const k = keyOf(say);
+    if(flight[k]) return flight[k];
+    const p = tx("readonly", s=>s.get(k)).then(r=>(r&&r.blob)||null, ()=>null).then(hit=>{
+      if(hit) return hit;
+      if(!active()) return null;
+      if(navigator.onLine === false){ lastErr="オフラインです"; return null; }
+      return fetch(url(), {method:"POST", headers:{"Content-Type":"application/json"},
+                           body:JSON.stringify({op:"tts", room:room(), text:say}), cache:"no-store"})
+        .then(res=>{
+          const ct = res.headers.get("content-type")||"";
+          // うまくいったときだけ音が返る。だめなときは理由が JSON で返る
+          if(!res.ok || /json/i.test(ct)){
+            return res.json().then(
+              j=>{ throw new Error((j&&j.error)||("置き場が "+res.status+" を返しました")); },
+              ()=>{ throw new Error("置き場が "+res.status+" を返しました"); });
+          }
+          return res.blob();
+        })
+        .then(b=>{
+          if(!b || b.size < 256) throw new Error("音が空で返りました");
+          tx("readwrite", s=>s.put({key:k, blob:b, at:Date.now()})).catch(()=>{});
+          lastErr = "";
+          return b;
+        })
+        .catch(e=>{ lastErr = (e&&e.message)||"置き場につながりませんでした"; return null; });
+    });
+    flight[k] = p;
+    const forget = ()=>{ delete flight[k]; };
+    p.then(forget, forget);
+    return p;
+  }
+
+  return {
+    supported: ()=>can,
+    ready, active,
+    on: ()=>onFlag,
+    setOn(v){ onFlag = !!v; LS.set("aiOn", onFlag?"1":"0"); return onFlag; },
+    conf: ()=>({url:url(), room:room()}),
+    setConf(u,r){ LS.set("aiUrl", String(u||"").trim()); LS.set("aiRoom", String(r||"").trim().toLowerCase()); },
+    clip,
+    /** いまの設定で本当に音が作れるか試す。{ok, message} を返す */
+    test(){
+      if(!can) return Promise.resolve({ok:false, message:"この端末では AI の音声を使えません"});
+      if(!urlOk(url())) return Promise.resolve({ok:false, message:"置き場の URL を入れてください"});
+      if(!ROOM_OK.test(room())) return Promise.resolve({ok:false, message:"合言葉の形が違います（英小文字・数字・ハイフンで16文字以上）"});
+      const was = onFlag; onFlag = true;
+      return clip("Hello. This is a test of the AI voice.").then(b=>{
+        onFlag = was;
+        return b ? {ok:true, message:"つながりました。AI の音声で読み上げます。"}
+                 : {ok:false, message:lastErr || "音を作れませんでした"};
+      });
+    },
+    count: ()=>tx("readonly", s=>s.count()).catch(()=>0),
+    clear: ()=>tx("readwrite", s=>s.clear()).then(()=>true, ()=>false),
+    error: ()=>lastErr
+  };
+})();
+
 /* ============ 読み上げ（音声エンジン） ============
    index.html の <script> の中、SYNC の定義のあとあたりに丸ごと貼る想定。
    画面は作らない。UI からは TTS.play() / TTS.pause() などを呼ぶ。
@@ -1822,6 +1962,51 @@ const TTS = (()=>{
   let spokeAt = 0, aliveAt = 0, startedOK = false, retryAt = -1, retryN = 0;
   let tPoll = null, tGap = null, tChk = null, tVoice = null, vTries = 0;
   let mo = null, moT = null, lastSelf = 0, emptyRuns = 0;
+
+  /* ---- AI の音声（AIV が作った mp3 を <audio> で鳴らす） ----
+     端末の読み上げと二者択一。AI 側が音を作れなければ、その文だけ端末の声に戻す。 */
+  let aud = null, audURL = "", audPrimed = false;
+  const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+  function aiOn(){ try{ return typeof AIV!=="undefined" && AIV.active(); }catch(e){ return false; } }
+  function audio(){
+    if(aud) return aud;
+    try{
+      aud = new Audio();
+      aud.preload = "auto";
+      aud.setAttribute("playsinline","");   // iOS で全画面にしない
+      aud.id = "ttsAudio";
+      aud.style.display = "none";
+      // 画面に付けておく。外したままだと、端末によっては裏に回ったときに止められる
+      if(document.body) document.body.appendChild(aud);
+    }catch(e){ aud = null; }
+    return aud;
+  }
+  /* タップの中で一度鳴らしておく（iOS の解錠）。無音なので聞こえない */
+  function warmAudio(){
+    const a = audio();
+    if(!a || audPrimed) return;
+    audPrimed = true;
+    try{
+      a.muted = true; a.src = SILENT;
+      const p = a.play();
+      const un = ()=>{ try{ a.muted = false; }catch(e){} };
+      if(p && p.then) p.then(un, un); else un();
+    }catch(e){ try{ a.muted = false; }catch(e2){} }
+  }
+  function audPlaying(){ return !!(aud && aud.src && !aud.paused && !aud.ended); }
+  function stopAudio(){
+    const a = aud; if(!a) return;
+    try{ a.onended = a.onerror = a.ontimeupdate = null; }catch(e){}
+    try{ a.pause(); }catch(e){}
+    try{ a.removeAttribute("src"); a.load(); }catch(e){}
+    if(audURL){ try{ URL.revokeObjectURL(audURL); }catch(e){} audURL = ""; }
+  }
+  /* 次の文をあらかじめ作っておく。押してから鳴るまでの間をなくすため */
+  function prefetch(i){
+    if(!aiOn()) return;
+    const it = queue[i];
+    if(it && it.text) { try{ AIV.clip(it.text); }catch(e){} }
+  }
 
   /* ============ 外への通知 ============ */
   const subs = {};
@@ -1967,12 +2152,23 @@ const TTS = (()=>{
     if(n===rate){ return rate; }
     rate = n; LS.set("ttsRate", rate);
     emit("rate", {rate:rate});
+    // AI の音声は鳴っている最中でも速さを変えられる。刻み方は変えない
+    // （変えると文の切れ目が動き、しまってある音が使えなくなるため）
+    if(aiOn()){
+      if(aud){ try{ aud.playbackRate = rate; }catch(e){} }
+      emitState();
+      return rate;
+    }
     if(mode==="playing") rebuild(true);                  // 刻み幅も変わるので作り直す
     else emitState();
     return rate;
   }
-  /* 速度が遅いほど 1 回の発話が長くなる。Chrome の 15 秒打ち切りに当たらないよう縮める */
-  function budget(){ return Math.round(clamp(CFG.maxChars*rate, CFG.minChars, CFG.maxChars)); }
+  /* 速度が遅いほど 1 回の発話が長くなる。Chrome の 15 秒打ち切りに当たらないよう縮める。
+     AI の音声のときは速さで刻み方を変えない（しまってある音の鍵が変わらないように） */
+  function budget(){
+    if(aiOn()) return CFG.maxChars;
+    return Math.round(clamp(CFG.maxChars*rate, CFG.minChars, CFG.maxChars));
+  }
 
   /* ============ 文に切る ============ */
   const ABBR = /(^|[\s("'“‘])(mr|mrs|ms|dr|st|jr|sr|prof|rev|hon|sgt|capt|lt|col|gen|vs|etc|inc|ltd|co|no|vol|ch|fig|pp?|approx|dept|univ|mt|ave|blvd)\.$/i;
@@ -2176,12 +2372,74 @@ const TTS = (()=>{
             part:partNow(), parts:partCount()};
   }
   function speakAt(i){
-    if(!SS) return;
+    if(!SS && !aiOn()) return;
     if(i < 0 || i >= queue.length){ finishPart(); return; }
     qi = i;
     if(i !== retryAt){ retryAt = i; retryN = 0; }   // 言い直しの回数は文ごとに数える
     const my = ++token;
+    if(aiOn()){ speakAudio(i, my); return; }
+    speakSS(i, my);
+  }
+  /* AI の音声。作れなければ、その文だけ端末の声に戻す（鳴らないよりは鳴らす） */
+  function speakAudio(i, my){
+    const it = queue[i], a = audio();
+    if(!it || !a){ speakSS(i, my); return; }
+    stopAudio();
+    spokeAt = aliveAt = Date.now(); startedOK = false;
+    emit("sentence", info(i));   // 音が届く前に、読む文の印だけ先に出す
+    emitState();
+    prefetch(i + 1);
+    AIV.clip(it.text).then(blob=>{
+      if(my!==token || mode!=="playing" || wantPause) return;
+      if(!blob){ speakSS(i, my); return; }
+      let src = "";
+      try{ src = URL.createObjectURL(blob); }catch(e){ speakSS(i, my); return; }
+      audURL = src;
+      a.onended     = ()=>{ if(my===token) done(my); };
+      a.ontimeupdate= ()=>{ if(my===token){ startedOK = true; aliveAt = Date.now(); } };
+      a.onerror     = ()=>{ if(my===token && mode==="playing" && !wantPause) speakSS(i, my); };
+      try{
+        a.src = src;
+        a.playbackRate = rate;
+        if("preservesPitch" in a)       a.preservesPitch = true;        // 遅くしても低くならない
+        if("webkitPreservesPitch" in a) a.webkitPreservesPitch = true;
+        const pr = a.play();
+        if(pr && pr.catch) pr.catch(()=>{
+          if(my!==token || mode!=="playing" || wantPause) return;
+          clearTimers(); mode = "paused"; needRestart = true; emitState();
+          emit("needgesture", {index:i});
+          emit("error", {code:"nostart",
+            message:"音が出ませんでした。本体の消音スイッチと音量を確かめて、もう一度 再生を押してください。"});
+        });
+      }catch(e){ speakSS(i, my); return; }
+      watchAudio(my);
+      prefetch(i + 2);
+    }, ()=>{ if(my===token) speakSS(i, my); });
+  }
+  /* 鳴り終わり・固まりを時計でも見張る（ended が来ない端末があるため） */
+  function watchAudio(my){
+    clearInterval(tPoll);
+    tPoll = setInterval(()=>{
+      if(my!==token || mode!=="playing" || wantPause) return;
+      const a = aud; if(!a) return;
+      if(a.ended){ clearInterval(tPoll); done(my); return; }
+      if(!a.paused) aliveAt = Date.now();
+      if(Date.now() - aliveAt > 15000){            // 固まった。次の文へ送る
+        clearTimers();
+        setTimeout(()=>{ if(my===token && mode==="playing") speakAt(qi + 1); }, 200);
+      }
+    }, CFG.pollMs);
+  }
+  function speakSS(i, my){
+    if(!SS){
+      clearTimers(); mode = "paused"; needRestart = true; emitState();
+      emit("error", {code:"noapi", message:"この端末では読み上げが使えません"});
+      return;
+    }
+    stopAudio();
+    qi = i;
     const it = queue[i];
+    if(!it){ finishPart(); return; }
     const u  = new SpeechSynthesisUtterance(it.text);
     const v  = curVoice();
     if(v){ u.voice = v; u.lang = v.lang || "en-US"; } else { u.lang = "en-US"; }
@@ -2265,8 +2523,9 @@ const TTS = (()=>{
   function restart(i){
     clearTimers();
     const my = ++token;
+    stopAudio();
     let busy = false;
-    try{ busy = SS.speaking || SS.pending; if(busy) SS.cancel(); }catch(e){}
+    try{ busy = SS && (SS.speaking || SS.pending); if(busy) SS.cancel(); }catch(e){}
     if(busy) setTimeout(()=>{ if(mode==="playing" && my===token) speakAt(i); }, Math.max(CFG.gapMs,150));
     else speakAt(i);
   }
@@ -2332,12 +2591,14 @@ const TTS = (()=>{
   /* ============ 外から呼ぶもの ============ */
   function status(){
     return {
-      api: !!SS,
+      api: !!SS || aiOn(),
+      ai: aiOn(),
       voices: voices.length,
       english: voices.filter(v=>/^en\b|^en-/i.test(v.lang||"")).length,
-      ready: !!SS,
+      ready: !!SS || aiOn(),
       ios: IOS,
-      reason: !SS ? "この端末では読み上げが使えません"
+      reason: aiOn() ? ""
+            : !SS ? "この端末では読み上げが使えません"
             : !voices.length ? "声の一覧がまだ取れていません（端末の声で読み上げます）"
             : ""
     };
@@ -2345,6 +2606,7 @@ const TTS = (()=>{
   /* タップの中で呼ぶと、そのあとの読み上げが鳴りやすくなる（iOS の解錠） */
   let primed = false, warmAt = 0;
   function warm(){
+    warmAudio();                 // AI の音声も、タップの中で一度鳴らして解錠しておく
     if(!SS || primed) return false;
     try{
       const u = new SpeechSynthesisUtterance(" ");
@@ -2357,7 +2619,8 @@ const TTS = (()=>{
   /* 必ずタップ・クリックの中から同期で呼ぶこと。中で待たない */
   function play(opt){
     opt = opt || {};
-    if(!SS){ emit("error",{code:"noapi", message:"この端末では読み上げが使えません"}); return false; }
+    if(!SS && !aiOn()){ emit("error",{code:"noapi", message:"この端末では読み上げが使えません"}); return false; }
+    warmAudio();
     if(mode==="paused" && opt.index==null && opt.gi==null && opt.el==null){ return resume(); }
     wantPause = softPause = needRestart = hidPause = false;
     emptyRuns = 0;
@@ -2388,6 +2651,8 @@ const TTS = (()=>{
     if(mode!=="playing") return false;
     wantPause = true; mode = "paused";
     clearTimers();
+    // AI の音声は <audio> なので、iOS でもその場で止まる（言い直しは要らない）
+    if(audPlaying()){ try{ aud.pause(); }catch(e){} emitState(); return true; }
     if(IOS){
       // iOS の pause() は効かないことが多い。止めて、いまの文の頭から言い直す方式にする
       softPause = true;
@@ -2406,6 +2671,21 @@ const TTS = (()=>{
   }
   function resume(){
     if(mode!=="paused") return false;
+    // 途中まで鳴っている AI の音声があれば、その続きから
+    if(aud && aud.src && !aud.ended && !needRestart && !softPause && aud.currentTime > 0){
+      wantPause = false; mode = "playing"; emitState();
+      try{ const p = aud.play(); if(p && p.catch) p.catch(()=>{}); }catch(e){}
+      aliveAt = Date.now();
+      watchAudio(token);
+      return true;
+    }
+    if(!SS && !aiOn()) return false;
+    if(aiOn()){
+      wantPause = false; mode = "playing"; emitState();
+      softPause = needRestart = false;
+      restart(qi < 0 ? 0 : qi);
+      return true;
+    }
     if(!SS) return false;
     wantPause = false; mode = "playing"; emitState();
     if(softPause || needRestart){
@@ -2434,6 +2714,7 @@ const TTS = (()=>{
   function stop(){
     clearTimers(); token++;
     wantPause = softPause = needRestart = hidPause = false;
+    stopAudio();
     try{ SS && SS.cancel(); }catch(e){}
     cu = null; qi = -1; mode = "idle";
     emit("sentence", null); emitState();
@@ -2525,7 +2806,8 @@ const TTS = (()=>{
 
   return {
     /* 使えるか */
-    supported: ()=>!!SS,
+    supported: ()=>!!SS || aiOn(),
+    ai: ()=>aiOn(),
     status,
     /* 声 */
     voices: listVoices,
@@ -3017,7 +3299,7 @@ const SPEAK = (()=>{
   $("#spkFwd").onclick =()=>TTS.next();
   $("#spkSlow").onclick=()=>TTS.setRate(TTS.rate()-0.1);
   $("#spkFast").onclick=()=>TTS.setRate(TTS.rate()+0.1);
-  $("#spkVoice").onclick=()=>{ paintVoices(); openSheet("sheetSpeak"); };
+  $("#spkVoice").onclick=()=>{ paintVoices(); paintAi(); openSheet("sheetSpeak"); };
   $$("#spkRates button").forEach(b=>b.onclick=()=>TTS.setRate(+b.dataset.rate));
 
   // 本文の文をタップすると、そこから読み直す
@@ -3033,7 +3315,8 @@ const SPEAK = (()=>{
 
   function start(){
     const st=TTS.status();
-    if(!st.api){ $("#btnSpeak").hidden=true; return; }   // 使えない端末では入口を出さない
+    // 端末の読み上げが無くても、AI の音声が使える端末なら入口は出す
+    if(!st.api && !AIV.supported()){ $("#btnSpeak").hidden=true; return; }
     TTS.config({wrapClass:"sp"});
     TTS.setGap(+(localStorage.getItem("ttsGap")||0.4));
     document.body.dataset.focus = focusOn?"1":"0";
@@ -3046,6 +3329,56 @@ const SPEAK = (()=>{
       focusOn=(v==="1"); localStorage.setItem("ttsFocus",v);
       document.body.dataset.focus=v;
     });
+    wireAi();
+  }
+
+  /* ---- AI の音声の設定 ---- */
+  function paintAi(msg){
+    const st=$("#aiState"), block=$("#spkVoiceBlock");
+    if(!st) return;
+    const can=AIV.supported(), ready=AIV.ready(), on=AIV.active();
+    st.textContent = msg ? msg
+      : !can   ? "この端末では使えません"
+      : !ready ? "置き場の URL と合言葉を入れてください"
+      : on     ? "AI の声で読み上げます"
+      :          "いまは端末の声で読み上げます";
+    $$("#spkAi button").forEach(b=>b.dataset.on = (b.dataset.ai==="1")===on ? "1":"0");
+    if(block) block.hidden = on;                   // AI の声のときは端末の声の一覧は要らない
+    AIV.count().then(n=>{
+      const c=$("#aiClear"); if(!c) return;
+      c.hidden = !n;
+      c.textContent = "しまってある音を消す（"+n+" 文）";
+    });
+  }
+  function wireAi(){
+    if(!$("#spkAi")) return;
+    const conf=AIV.conf();
+    if($("#aiUrl"))  $("#aiUrl").value  = conf.url;
+    if($("#aiRoom")) $("#aiRoom").value = conf.room;
+    $$("#spkAi button").forEach(b=>b.onclick=()=>{
+      const want=b.dataset.ai==="1";
+      if(want && !AIV.ready()){ AIV.setOn(false); paintAi("置き場の URL と合言葉を入れてください"); return; }
+      AIV.setOn(want);
+      // 鳴っている最中に切り替えたら、いまの文の頭から読み直す
+      if(TTS.playing()){ const c=TTS.current(); TTS.stop(); if(c) TTS.play({index:c.index}); }
+      paintAi();
+    });
+    $("#aiSave").onclick=()=>{
+      AIV.setConf($("#aiUrl").value, $("#aiRoom").value);
+      paintAi("試しています…");
+      $("#aiSave").disabled = true;
+      AIV.test().then(r=>{
+        $("#aiSave").disabled = false;
+        if(r.ok) AIV.setOn(true);
+        paintAi(r.message);
+        toast(r.ok ? "AI の音声が使えます" : r.message);
+        setTimeout(()=>paintAi(), 4000);
+      });
+    };
+    $("#aiClear").onclick=()=>{
+      AIV.clear().then(ok=>{ toast(ok?"しまってある音を消しました":"消せませんでした"); paintAi(); });
+    };
+    paintAi();
   }
   function stop(){ if(TTS.supported()) TTS.stop(); back=null; open(false); }
   // 段落を塗り直したあと、いま読んでいる文に帯を付け直す
